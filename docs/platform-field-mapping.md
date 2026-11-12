@@ -3,10 +3,11 @@
 Research and fixture notes for the interfaces the collector reads, and how their fields map onto
 the existing `JobRecord` ([collector/models.py](../collector/models.py), unchanged).
 
-**Status:** the **Greenhouse** adapter is implemented
-([collector/adapters/greenhouse.py](../collector/adapters/greenhouse.py), Phase 3 step 1); its
-section below is the actual behaviour. The Lever, Ashby, JSON-LD and generic sections are still
-*proposals* from Phase 2 research. No spider exists yet.
+**Status:** the **Greenhouse** (Phase 3 step 1) and **Lever** (step 2) adapters are implemented
+([greenhouse.py](../collector/adapters/greenhouse.py), [lever.py](../collector/adapters/lever.py),
+sharing [common.py](../collector/adapters/common.py)); their sections below are the actual
+behaviour. The Ashby, JSON-LD and generic sections are still *proposals* from Phase 2 research.
+No spider exists yet.
 
 ## Read this first
 
@@ -27,10 +28,10 @@ section below is the actual behaviour. The Lever, Ashby, JSON-LD and generic sec
 | Interface | Reference | Status |
 | --- | --- | --- |
 | Greenhouse Job Board API | <https://docs.greenhouse.io/job-board.html> | official, read |
-| Lever Postings API | <https://github.com/lever/postings-api> | official README, read; `createdAt` unit **not** confirmed there |
+| Lever Postings API | <https://github.com/lever/postings-api> | official README, read (re-read in Phase 3 step 2); **`createdAt` is not documented there at all**, and the response wrapper is not shown |
 | Ashby Job Postings API | <https://developers.ashbyhq.com/docs/public-job-posting-api> | official, read; `id` and compensation placement not reliably documented |
 | JSON-LD `JobPosting` | <https://developers.google.com/search/docs/appearance/structured-data/job-posting> and <https://schema.org/JobPosting> | official, read |
-| Lever `createdAt` as epoch ms | third-party scraper/wrapper descriptions (search results) | **unofficial, unverified** |
+| Lever `createdAt` as epoch ms | third-party scraper/wrapper descriptions (search results) | **unofficial, unverified; not used by the adapter** |
 
 ## Platform research summary
 
@@ -45,7 +46,7 @@ section below is the actual behaviour. The Lever, Ashby, JSON-LD and generic sec
 | Remote/hybrid/on-site | **no field**; free text only (and possibly custom `metadata`) | `workplaceType`: `unspecified`, `on-site`, `remote`, `hybrid` | `workplaceType`: `OnSite`, `Remote`, `Hybrid`; `isRemote` is true for Remote **and** Hybrid | `jobLocationType: "TELECOMMUTE"` means 100 % remote; no hybrid/on-site signal |
 | Description | `content`: HTML, **entity-encoded** | `description`/`descriptionPlain`, plus `descriptionBody*`, `lists[]`, `additional*` | `descriptionHtml`, `descriptionPlain` | `description`: HTML (sometimes escaped or plain) |
 | Employment type | none (public API) | `categories.commitment` free text | `employmentType`: `FullTime`, `PartTime`, `Intern`, `Contract`, `Temporary` | `employmentType`: `FULL_TIME`, `PART_TIME`, `CONTRACTOR`, `TEMPORARY`, `INTERN`, `VOLUNTEER`, `PER_DIEM`, `OTHER`; may be an array |
-| Posting date | `first_published` **detail only** (ISO 8601, `Z`); `updated_at` (offset, e.g. `-05:00`) is *last modified* | `createdAt` (**ASSUMPTION**: epoch ms; creation, not necessarily publication) | `publishedAt` (ISO 8601 with offset; "last publication") | `datePosted` (`Date` or `DateTime`, ISO 8601, offset optional) |
+| Posting date | `first_published` **detail only** (ISO 8601, `Z`); `updated_at` (offset, e.g. `-05:00`) is *last modified* | none verified: `createdAt` is undocumented, **not mapped** (Lever adapter leaves the date unknown) | `publishedAt` (ISO 8601 with offset; "last publication") | `datePosted` (`Date` or `DateTime`, ISO 8601, offset optional) |
 | Apply URL | `absolute_url` (job page; may be on a custom domain with `?gh_jid=`) | `applyUrl` (form) and `hostedUrl` (posting page) | `applyUrl` and `jobUrl` | **no dedicated property**; `url` is the posting page; `directApply` is a boolean hint |
 | Pagination | none documented (`meta.total`) | offset: `skip`, `limit`; no cursor or total documented | none documented | n/a (page-level) |
 | Needs JavaScript | no | no | no | no for the embedded data; the host page may itself be JS-rendered |
@@ -73,10 +74,12 @@ Common rules for every platform:
 - **Dates:** `parse_posted_date` returns the date *as written in the source*; an explicit offset
   is not converted to the business timezone (`2026-10-02T18:30:00-05:00` → 2 Oct).
 - **Descriptions** → `description_snippet`: decode entities where noted, strip tags, collapse
-  whitespace, truncate. `JobRecord` has no limit; the Greenhouse adapter uses 500 characters.
+  whitespace, truncate. `JobRecord` has no limit; the Greenhouse and Lever adapters use 500
+  characters.
 - **Identity:** `external_id` is only set when the platform guarantees stability; Phase 1 scopes
   it by `platform + company_name`. Known limitation (`Infosys` vs `Infosys Limited`). The Greenhouse
-  adapter additionally scopes the id by board token (see its section); the others are still open.
+  and Lever adapters additionally scope the id by board token / site slug (see their sections);
+  Ashby is still open.
 
 ### Greenhouse
 
@@ -195,24 +198,103 @@ Source: <https://docs.greenhouse.io/job-board.html>.
 
 ### Lever
 
-| JobRecord | Source | Notes |
+Implemented in [collector/adapters/lever.py](../collector/adapters/lever.py) (Phase 3 step 2), on
+the result types and text/URL helpers shared with Greenhouse in
+[collector/adapters/common.py](../collector/adapters/common.py). Tests:
+[tests/test_lever_adapter.py](../tests/test_lever_adapter.py).
+
+**Interface** (pure: no network, files, database, logging, environment or clock; input not mutated):
+
+```python
+extract_lever_jobs(
+    payload,                    # decoded JSON: the array returned by GET /v0/postings/{site}
+    *, company_name,            # trusted configuration
+    site_slug,                  # [A-Za-z0-9][A-Za-z0-9._-]*
+    source_url,                 # URL that was requested
+    collected_at,               # timezone-aware, injected
+    company_website=None,
+) -> LeverExtraction            # same type as GreenhouseExtraction: records, failures,
+                                # warnings, response_type ("listing"), job_count
+```
+
+Invalid *configuration* raises `ValueError`. Problems in the *response* never raise: fatal ones are
+failures, recoverable ones are warnings. **Response type:** only the JSON array (*listing*). The
+README does not show a response wrapper or a single-posting shape; anything else (object, error
+body, string, `null`) is one `invalid_response` failure.
+
+| JobRecord | Source | Behaviour |
 | --- | --- | --- |
-| `title` | `text` | |
-| `company_name` | seed/config (site slug) | not in the response |
-| `apply_url` | `applyUrl`, else `hostedUrl` | **ASSUMPTION:** the fallback is acceptable; both are real URLs from the response |
-| `external_id` | `id` | UUID |
-| `location` | `categories.location`; extra places from `categories.allLocations` joined with `"; "` | |
-| `work_type` | `workplaceType`: `remote`→`remote`, `hybrid`→`hybrid`, `on-site`→`onsite`, `unspecified`→`None` | |
-| `employment_type` | `categories.commitment` | free text |
-| `salary_text` | `salaryDescriptionPlain`, else formatted `salaryRange` (`currency`, `interval`, `min`, `max`) | optional; the `interval` vocabulary is **ASSUMPTION** (`per-year-salary` used in fixtures) |
-| `posted_date` | `createdAt` | **ASSUMPTION:** epoch milliseconds; convert the instant to a UTC date (a Phase 3 decision); `posted_date_source="platform"`; may precede the real publication date |
-| `description_snippet` | `descriptionPlain`, else stripped `description` | |
+| `title` | `text` | whitespace collapsed; missing/blank → failure |
+| `company_name` | **configuration only** | Lever responses carry none; never inferred from text |
+| `apply_url` | `applyUrl`, else `hostedUrl` | `applyUrl` preferred. `hostedUrl` (the posting page, which links to the form) is used when `applyUrl` is absent, or present but unusable (then with a warning). Both unusable → failure. No URL is ever built |
+| `external_id` | `"<site_slug>:<id>"` | `id` UUIDs are canonicalized (lower case, hyphenated); other strings kept; absent `id` → `None` (identity falls back to the normalized apply URL); wrong type / blank → failure |
+| `location` | `categories.location`, then the other `categories.allLocations` | primary first, then the rest in source order, case-insensitive duplicates removed, joined with `"; "`; only `allLocations` present → it alone; blank → `None` |
+| `work_type` | top-level `workplaceType` | `remote`→`remote`, `hybrid`→`hybrid`, `on-site`→`onsite`; `unspecified`, unknown values and absence → `None`. Never inferred from location or description |
+| `employment_type` | `categories.commitment` | verbatim (whitespace collapsed), only when it names **one** commitment: text with `, ; / \| &`, `or`/`and`, or over 100 characters is ambiguous → `None`. Not mapped to a vocabulary |
+| `salary_text` | none | always `None` (`salaryRange`/`salaryDescription*` exist but are not mapped) |
+| `posted_date` | none | always `None` / `"unknown"`: `createdAt` is deliberately not mapped (see Dates) |
+| `description_snippet` | `descriptionPlain`, else `description` | see Descriptions |
+| `company_website`, `platform`, `collected_at`, `source_url` | arguments / constant | as for Greenhouse |
 
-Limitations: pagination is `skip`/`limit` only; the stop condition (empty or short page) and the
-default page size are unconfirmed. `createdAt` is not in the official page as read; the
-epoch-milliseconds claim comes from third-party sources.
+`workplaceType` is read at the **top level**, as the README and the fixtures place it; a value
+inside `categories` is not read because that placement is undocumented.
 
-Fixtures (all synthetic):
+**Validation and failures.** As for Greenhouse: each posting is extracted independently, a failure
+carries `kind`, `index`, `job_id` and every `FieldError` (source field names), messages never
+contain source values or HTML, and `validate_job` is the final gate. Fatal: missing/blank `text`,
+both URLs missing or unusable, unusable `id`, and a wrong JSON type in `categories`,
+`categories.location`, `categories.allLocations`, `categories.commitment`, `workplaceType`,
+`descriptionPlain` or `description`. URLs must be absolute public http(s): no credentials,
+`localhost`, single-label hosts or non-global IPs; they are normalized with `normalize_url`.
+Unknown fields are ignored.
+
+**Dates: `createdAt` is deliberately not mapped.** Every Lever record has `posted_date=None` and
+`posted_date_source="unknown"`.
+
+- Lever's public README documents **no publication-date field**. `createdAt` is not in it at all
+  (re-read in Phase 3 step 2), so its unit (epoch milliseconds is a third-party claim) and its
+  meaning (creation time, which can precede the day a posting went live) are both unverified.
+- Using it would put an unverified date into the Phase 1 date window, which could wrongly mark a
+  recently published job `OLD_DATE` and drop it from the eligible set. Unknown dates are instead
+  kept and flagged for review (`UNKNOWN_DATE`), so nothing is lost.
+- The adapter does not read, parse or validate `createdAt`: it is out of the extraction path, not
+  parsed and discarded. Whatever it holds (a valid value, garbage, a wrong type, or nothing) has no
+  effect on the record and produces **no warning**. `collected_at` is never substituted, no other
+  timestamp field replaces it, and no date is parsed from text.
+- **Future work, after permitted live validation:** only a field whose publication semantics are
+  confirmed (against Lever documentation or live responses fetched within robots and terms) may
+  populate `posted_date`. Until then the fixtures' `createdAt` values (2026-10-05 as epoch
+  milliseconds, per the Phase 2 notes) are present in the data but unused.
+
+**Warnings.** `LeverExtraction.warnings` holds `ExtractionWarning` objects (`kind`, `index`,
+`job_id`, `field`, safe `message`) in source order. There is one recoverable problem: an `applyUrl`
+that is present but unusable while `hostedUrl` saved the job (`invalid_url` / `invalid_type`, field
+`applyUrl`). A posting that fails for another reason still reports its warning next to the failure.
+
+**Descriptions.** `descriptionPlain` is used when it has content; it is text, so it is **not**
+parsed as HTML (a literal `<b>` stays). Otherwise `description` (HTML) is converted with
+`selectolax` exactly as for Greenhouse (nothing executed or fetched; `script`/`style`/`iframe`/
+`svg`/`template`/comments dropped with their content; block elements separate words; entities
+decoded once). In both cases control characters are removed, text is NFC-normalized and whitespace
+collapsed, and the snippet is at most 500 Unicode characters, cut at a word boundary when one
+exists (a single longer word is cut hard; no ellipsis). `descriptionBody*`, `opening*`, `lists` and
+`additional*` are not used: `descriptionPlain` already combines opening and body per the README.
+
+**Known limitations.** **No posting date for any Lever job** (see Dates), so every Lever record is
+`UNKNOWN_DATE` in the Phase 1 window and needs review; the date filter cannot exclude old Lever
+postings. No pagination (`skip`/`limit` handling belongs to the later fetch layer; the stop
+condition is undocumented), no de-duplication inside the adapter (use the Phase 1 `Deduper`), no
+EU/host handling, and no salary. `department`, `team`, `country`, `lists` and `additional` are not
+mapped. The commitment rule is a conservative text check, not a taxonomy.
+
+**Assumptions requiring permitted live validation:** whether any Lever field is a verified
+publication date (`createdAt` is undocumented and unused); `id` is a stable UUID within a site;
+`hostedUrl` leads to the application; `workplaceType` is at the top level with the documented
+values; the response is a bare array; `allLocations` lists every location including the primary
+one.
+
+Fixtures (all synthetic, 8): every one is exercised by the adapter tests, and every posting in
+them is either extracted or reported:
 [postings_complete](../tests/fixtures/lever/postings_complete.json),
 [postings_missing_optional_fields](../tests/fixtures/lever/postings_missing_optional_fields.json),
 [postings_multiple_locations](../tests/fixtures/lever/postings_multiple_locations.json),
@@ -220,7 +302,7 @@ Fixtures (all synthetic):
 [postings_html_description](../tests/fixtures/lever/postings_html_description.json),
 [postings_missing_posted_date](../tests/fixtures/lever/postings_missing_posted_date.json),
 [postings_empty](../tests/fixtures/lever/postings_empty.json) (0),
-[postings_invalid_incomplete](../tests/fixtures/lever/postings_invalid_incomplete.json) (2).
+[postings_invalid_incomplete](../tests/fixtures/lever/postings_invalid_incomplete.json) (2 failures: no title / no URL).
 Source: <https://github.com/lever/postings-api>.
 
 ### Ashby
@@ -325,7 +407,9 @@ No `JobRecord` field exists for: Greenhouse `requisition_id`, `departments`, `of
 
 ## Assumptions requiring live validation
 
-1. Lever `createdAt` unit (epoch ms) and meaning (creation vs publication).
+1. Lever publication date: `createdAt` is undocumented (unit and meaning unverified) and is
+   deliberately **not mapped**; Lever jobs have an unknown posted date until a verified field is
+   confirmed.
 2. Ashby `id` presence/stability, and where `compensation` appears with `includeCompensation=true`.
 3. Pagination behaviour and page size for Greenhouse (none documented), Lever and Ashby on large
    boards.
@@ -336,4 +420,4 @@ No `JobRecord` field exists for: Greenhouse `requisition_id`, `departments`, `of
 7. Whether Greenhouse boards expose workplace type or employment type through custom `metadata`.
 8. Greenhouse single-job requests per job are acceptable at the expected volume (needed for
    `first_published`).
-9. The Greenhouse adapter's own assumptions (listed in its section above).
+9. The Greenhouse and Lever adapters' own assumptions (listed in their sections above).
