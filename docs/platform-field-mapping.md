@@ -1,9 +1,12 @@
-# Platform field mapping (Phase 2)
+# Platform field mapping
 
-Research and fixture notes for the interfaces the collector will read in later phases. **No
-adapter or spider exists yet**; this document describes what each fixture models and how its
-fields are *proposed* to map onto the existing `JobRecord` ([collector/models.py](../collector/models.py)).
-`JobRecord` is unchanged.
+Research and fixture notes for the interfaces the collector reads, and how their fields map onto
+the existing `JobRecord` ([collector/models.py](../collector/models.py), unchanged).
+
+**Status:** the **Greenhouse** adapter is implemented
+([collector/adapters/greenhouse.py](../collector/adapters/greenhouse.py), Phase 3 step 1); its
+section below is the actual behaviour. The Lever, Ashby, JSON-LD and generic sections are still
+*proposals* from Phase 2 research. No spider exists yet.
 
 ## Read this first
 
@@ -70,41 +73,122 @@ Common rules for every platform:
 - **Dates:** `parse_posted_date` returns the date *as written in the source*; an explicit offset
   is not converted to the business timezone (`2026-10-02T18:30:00-05:00` → 2 Oct).
 - **Descriptions** → `description_snippet`: decode entities where noted, strip tags, collapse
-  whitespace, truncate. Length is a Phase 3 decision (`JobRecord` has no limit; 500 characters is
-  suggested).
+  whitespace, truncate. `JobRecord` has no limit; the Greenhouse adapter uses 500 characters.
 - **Identity:** `external_id` is only set when the platform guarantees stability; Phase 1 scopes
-  it by `platform + company_name`. Known limitation (`Infosys` vs `Infosys Limited`): prefer the
-  board token/site slug as scope in a later phase.
+  it by `platform + company_name`. Known limitation (`Infosys` vs `Infosys Limited`). The Greenhouse
+  adapter additionally scopes the id by board token (see its section); the others are still open.
 
 ### Greenhouse
 
-| JobRecord | Source | Notes |
+Implemented in [collector/adapters/greenhouse.py](../collector/adapters/greenhouse.py). Tests:
+[tests/test_greenhouse_adapter.py](../tests/test_greenhouse_adapter.py).
+
+**Interface** (pure: no network, files, database, logging, environment or clock; input not mutated):
+
+```python
+extract_greenhouse_jobs(
+    payload,                    # decoded JSON: listing {"jobs": [...]} or one job object
+    *, company_name,            # trusted configuration
+    board_token,                # [A-Za-z0-9][A-Za-z0-9._-]*
+    source_url,                 # URL that was requested
+    collected_at,               # timezone-aware, injected
+    company_website=None,
+) -> GreenhouseExtraction       # records, failures, warnings, response_type, job_count
+```
+
+Invalid *configuration* (blank company, malformed token, non-public URL, naive `collected_at`)
+raises `ValueError`. Problems in the *response* never raise: fatal ones are returned as
+failures, recoverable ones as warnings.
+
+**Response types:** *listing* (`jobs` is a list; each element is one job) and *detail* (a bare job
+object with `id`, `title` or `absolute_url`). Anything else (not an object, `jobs` not a list, an
+error body) is one `invalid_response` failure.
+
+| JobRecord | Source | Behaviour |
 | --- | --- | --- |
-| `title` | `title` | |
-| `company_name` | detail `company_name`, else seed/config | not in the list response |
-| `apply_url` | `absolute_url` | job page; the board hosts the form |
-| `external_id` | `id` | post id; `internal_job_id` is the ATS job and can be null |
-| `location` | `location.name` | free text, may hold several places (`"A; B"`); stored unsplit |
-| `work_type` | none → `None` | no structured field; inferring from the text "Remote" is a heuristic needing approval |
-| `employment_type` | none → `None` | not in the public API |
-| `salary_text` | `pay_input_ranges` (single job with `pay_transparency=true`) | `None` otherwise; amounts are in cents |
-| `posted_date` | `first_published` (detail only) | `posted_date_source="platform"`; **never** `updated_at` |
-| `description_snippet` | `content` | HTML-entity-decode first, then strip tags |
-| `company_website` | none → `None` | |
+| `title` | `title` | whitespace collapsed; missing/blank → failure |
+| `company_name` | **configuration only** | the detail response's own `company_name` is ignored; never inferred from text |
+| `apply_url` | `absolute_url` | Greenhouse has no separate apply-URL field; the board hosts the form behind this link. Never built from token + id |
+| `source_url` | argument | validated and normalized |
+| `external_id` | `"<board_token>:<id>"` | `id` (integer, canonicalized) scoped by board; absent `id` → `None` (identity falls back to the normalized apply URL) |
+| `location` | `location.name` | whitespace collapsed, kept unsplit in source order (`"A; B"`); blank → `None`; `offices` unused |
+| `work_type` | location text | `remote` only if every `;` part is an explicit remote marker (`Remote`, `Remote - X`, `Remote (X)`, `Remote, X`) and no hybrid/on-site word appears; else `None` |
+| `employment_type`, `salary_text` | none | always `None` (not in the public listing; `pay_input_ranges` is not mapped yet) |
+| `posted_date` | `first_published` | `posted_date_source="platform"`; absent/null/blank → `None` + `"unknown"`; malformed or wrong-type → same, plus a warning (job kept); **never** `updated_at` or `collected_at` |
+| `description_snippet` | `content` | entity-decoded HTML → text → at most 500 characters (see below) |
+| `company_website` | argument | validated and normalized, else `None` |
+| `platform`, `collected_at` | constant, argument | |
 
-Limitations: list responses carry no posting date or company name, so a complete record needs one
-extra request per job (or accepting `posted_date=None`, which the Phase 1 date filter keeps and
-flags for review). Pagination is undocumented, so large boards need live validation. Dates mix `Z`
-and numeric offsets.
+**Validation and failures.** Each job is extracted independently; one bad job never stops the rest
+and nothing is dropped silently. `ExtractionFailure` carries `kind`, `index` (position in `jobs`),
+`job_id` and every `FieldError` found (source field names). Messages name types and fields, never
+source values or HTML. Kinds: `invalid_response`, `missing_field` (title, `absolute_url`),
+`invalid_url`, `invalid_type` (a required or consumed field other than the date with the wrong
+JSON type, including an unusable `id`). `invalid_date` is a warning kind only (see Dates). After the
+adapter's own checks, `validate_job` runs as the final gate;
+anything it still rejects (e.g. a URL over the model's length limit) is reported with its own
+field/code/message. URLs must be absolute public http(s): no credentials, `localhost`,
+single-label hosts or non-global IPs; they are normalized with `normalize_url` (tracking
+parameters dropped, `gh_jid` kept). Unknown fields are ignored.
 
-Fixtures (all synthetic):
+**Dates.** Only ISO 8601 `first_published` (date, or date-time with optional `Z`/offset) is
+accepted. The date is the one *written in the source*; an offset is not converted
+(`2026-10-01T23:30:00-05:00` → 1 Oct), consistent with `parse_posted_date`. The date is optional,
+so a bad one never rejects an otherwise valid job:
+
+| `first_published` | Result |
+| --- | --- |
+| valid ISO 8601 | `posted_date` set, `"platform"`, no warning |
+| absent, `null`, blank | unknown date, no warning |
+| a string that is not valid ISO 8601 (free text such as "3 days ago" included) | job kept, unknown date, `invalid_date` warning |
+| not a string (number, bool, list, object) | job kept, unknown date, `invalid_type` warning |
+
+Nothing is substituted: not `updated_at` (last modified), not `collected_at`, and no date is
+parsed from free text. The Phase 1 date window classifies these jobs as `UNKNOWN_DATE` (kept, needs
+review).
+
+**Warnings.** `GreenhouseExtraction.warnings` holds one `ExtractionWarning` per recoverable
+problem, in source order: `kind` (`invalid_date` / `invalid_type`), `index` (position in `jobs`,
+`None` for a detail response), `job_id` (when usable), `field` (`first_published`) and a message
+that names the field and, for a wrong type, the JSON type, never the source value. The posting date is
+the only recoverable field today; every other problem is still a fatal failure. If a job also fails
+for another reason, its date warning is still reported next to the failure.
+
+**Identity.** `job_key` is unchanged (`platform + company_name + external_id`). Putting the board
+token inside `external_id` makes it board-scoped without touching the algorithm: the same
+Greenhouse id on two boards gives two keys; the same job re-extracted (even from a changed URL)
+gives the same key. `company_name` still scopes the key, so renaming a company in configuration
+changes all its keys (Phase 1 limitation).
+
+**Descriptions.** `content` is entity-encoded HTML (`&lt;p&gt;`): decoded once (content that
+already has literal tags is not decoded again), parsed with `selectolax` (nothing is executed or
+fetched), `script`/`style`/`iframe`/`svg`/`template`/comments are dropped with their content,
+block elements separate words, control characters are removed, text is NFC-normalized and
+whitespace collapsed to single spaces. The snippet is at most 500 Unicode characters, cut at a word
+boundary when one exists (a single longer word is cut hard); no ellipsis is added. Missing or empty
+content → `None` (list responses only carry it with `?content=true`).
+
+**Known limitations.** List responses have no posting date, so records from them have
+`posted_date=None` until a detail response is extracted (the Phase 1 date filter keeps and flags
+them). No pagination, no `meta.total` cross-check, no de-duplication inside the adapter (use the
+Phase 1 `Deduper`). `departments`, `offices`, `requisition_id`, `language`, `metadata` and
+`application_deadline` are not mapped. The `work_type` rule is a narrow text heuristic (approval
+pending); Greenhouse exposes no field for it.
+
+**Assumptions requiring permitted live validation:** `absolute_url` always leads to the
+application; `id` is stable and unique within a board; `first_published` is always ISO 8601;
+`content` is entity-encoded (or contains literal tags) and not otherwise double-encoded; board
+tokens match the accepted pattern and are case-consistent in configuration.
+
+Fixtures (all synthetic, 9): every one is exercised by the adapter tests, and every job in them is
+either extracted or reported:
 [list_complete](../tests/fixtures/greenhouse/list_complete.json),
 [list_missing_optional_fields](../tests/fixtures/greenhouse/list_missing_optional_fields.json),
 [list_multiple_locations](../tests/fixtures/greenhouse/list_multiple_locations.json),
 [list_remote](../tests/fixtures/greenhouse/list_remote.json),
 [list_html_description](../tests/fixtures/greenhouse/list_html_description.json),
 [list_empty](../tests/fixtures/greenhouse/list_empty.json) (0 jobs),
-[list_invalid_incomplete](../tests/fixtures/greenhouse/list_invalid_incomplete.json) (2 jobs, no title / no URL),
+[list_invalid_incomplete](../tests/fixtures/greenhouse/list_invalid_incomplete.json) (2 failures: no title / no URL),
 [detail_complete](../tests/fixtures/greenhouse/detail_complete.json),
 [detail_missing_posted_date](../tests/fixtures/greenhouse/detail_missing_posted_date.json).
 Source: <https://docs.greenhouse.io/job-board.html>.
@@ -251,4 +335,5 @@ No `JobRecord` field exists for: Greenhouse `requisition_id`, `departments`, `of
 6. Lever `salaryRange.interval` vocabulary.
 7. Whether Greenhouse boards expose workplace type or employment type through custom `metadata`.
 8. Greenhouse single-job requests per job are acceptable at the expected volume (needed for
-   `first_published` and `company_name`).
+   `first_published`).
+9. The Greenhouse adapter's own assumptions (listed in its section above).
