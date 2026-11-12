@@ -1,0 +1,1017 @@
+{
+  "note": "Authoritative description of every fixture in this directory. All current fixtures are synthetic: invented for tests and modelled on the documented formats, never captured responses.",
+  "fixtures": [
+    {
+      "path": "greenhouse/list_complete.json",
+      "platform": "greenhouse",
+      "kind": "listing",
+      "scenario": "complete",
+      "provenance": "synthetic",
+      "source_ref": "https://docs.greenhouse.io/job-board.html",
+      "description": "Job list with content=true: one complete posting.",
+      "container": "jobs",
+      "expected_listing_count": 1,
+      "source_fields": [
+        "id",
+        "internal_job_id",
+        "title",
+        "updated_at",
+        "requisition_id",
+        "location.name",
+        "absolute_url",
+        "language",
+        "metadata",
+        "content",
+        "departments",
+        "offices"
+      ]
+    },
+    {
+      "path": "greenhouse/list_missing_optional_fields.json",
+      "platform": "greenhouse",
+      "kind": "listing",
+      "scenario": "missing_optional_fields",
+      "provenance": "synthetic",
+      "source_ref": "https://docs.greenhouse.io/job-board.html",
+      "description": "Optional values null/empty: no requisition, no internal id, no departments or offices.",
+      "container": "jobs",
+      "expected_listing_count": 1,
+      "source_fields": [
+        "id",
+        "internal_job_id",
+        "title",
+        "updated_at",
+        "requisition_id",
+        "location.name",
+        "absolute_url",
+        "language",
+        "metadata",
+        "content",
+        "departments",
+        "offices"
+      ],
+      "null_or_empty_fields": [
+        "internal_job_id",
+        "requisition_id",
+        "metadata",
+        "location.name",
+        "departments",
+        "offices"
+      ]
+    },
+    {
+      "path": "greenhouse/list_multiple_locations.json",
+      "platform": "greenhouse",
+      "kind": "listing",
+      "scenario": "multiple_locations",
+      "provenance": "synthetic",
+      "source_ref": "https://docs.greenhouse.io/job-board.html",
+      "description": "Several locations packed into one free-text location.name plus two offices; custom-domain absolute_url carrying the meaningful gh_jid parameter.",
+      "container": "jobs",
+      "expected_listing_count": 1,
+      "source_fields": [
+        "id",
+        "internal_job_id",
+        "title",
+        "updated_at",
+        "requisition_id",
+        "location.name",
+        "absolute_url",
+        "language",
+        "metadata",
+        "content",
+        "departments",
+        "offices"
+      ]
+    },
+    {
+      "path": "greenhouse/list_remote.json",
+      "platform": "greenhouse",
+      "kind": "listing",
+      "scenario": "remote",
+      "provenance": "synthetic",
+      "source_ref": "https://docs.greenhouse.io/job-board.html",
+      "description": "Remote role: only free text in location.name; there is no structured remote flag.",
+      "container": "jobs",
+      "expected_listing_count": 1,
+      "source_fields": [
+        "id",
+        "internal_job_id",
+        "title",
+        "updated_at",
+        "requisition_id",
+        "location.name",
+        "absolute_url",
+        "language",
+        "metadata",
+        "content",
+        "departments",
+        "offices"
+      ]
+    },
+    {
+      "path": "greenhouse/list_html_description.json",
+      "platform": "greenhouse",
+      "kind": "listing",
+      "scenario": "html_description",
+      "provenance": "synthetic",
+      "source_ref": "https://docs.greenhouse.io/job-board.html",
+      "description": "content is HTML that has been entity-encoded (decode, then strip tags).",
+      "container": "jobs",
+      "expected_listing_count": 1,
+      "source_fields": [
+        "id",
+        "internal_job_id",
+        "title",
+        "updated_at",
+        "requisition_id",
+        "location.name",
+        "absolute_url",
+        "language",
+        "metadata",
+        "content",
+        "departments",
+        "offices"
+      ]
+    },
+    {
+      "path": "greenhouse/list_empty.json",
+      "platform": "greenhouse",
+      "kind": "listing",
+      "scenario": "empty",
+      "provenance": "synthetic",
+      "source_ref": "https://docs.greenhouse.io/job-board.html",
+      "description": "A board with no open jobs.",
+      "container": "jobs",
+      "expected_listing_count": 0
+    },
+    {
+      "path": "greenhouse/list_invalid_incomplete.json",
+      "platform": "greenhouse",
+      "kind": "listing",
+      "scenario": "invalid",
+      "provenance": "synthetic",
+      "source_ref": "https://docs.greenhouse.io/job-board.html",
+      "description": "Two incomplete postings: one without title, one without absolute_url.",
+      "container": "jobs",
+      "expected_listing_count": 2,
+      "absent_fields_per_item": [
+        [
+          "title"
+        ],
+        [
+          "absolute_url"
+        ]
+      ]
+    },
+    {
+      "path": "greenhouse/detail_complete.json",
+      "platform": "greenhouse",
+      "kind": "detail",
+      "scenario": "complete",
+      "provenance": "synthetic",
+      "source_ref": "https://docs.greenhouse.io/job-board.html",
+      "description": "Single-job response: the only shape with company_name and first_published.",
+      "container": "object",
+      "expected_listing_count": 1,
+      "source_fields": [
+        "id",
+        "internal_job_id",
+        "title",
+        "company_name",
+        "first_published",
+        "updated_at",
+        "requisition_id",
+        "location.name",
+        "absolute_url",
+        "language",
+        "content"
+      ]
+    },
+    {
+      "path": "greenhouse/detail_missing_posted_date.json",
+      "platform": "greenhouse",
+      "kind": "detail",
+      "scenario": "missing_posted_date",
+      "provenance": "synthetic",
+      "source_ref": "https://docs.greenhouse.io/job-board.html",
+      "description": "No first_published; updated_at (last modified) is present but is NOT a posting date.",
+      "container": "object",
+      "expected_listing_count": 1,
+      "source_fields": [
+        "id",
+        "internal_job_id",
+        "title",
+        "company_name",
+        "updated_at",
+        "requisition_id",
+        "location.name",
+        "absolute_url",
+        "language",
+        "content"
+      ],
+      "absent_fields": [
+        "first_published"
+      ]
+    },
+    {
+      "path": "lever/postings_complete.json",
+      "platform": "lever",
+      "kind": "listing",
+      "scenario": "complete",
+      "provenance": "synthetic",
+      "source_ref": "https://github.com/lever/postings-api",
+      "description": "One complete posting with salaryRange.",
+      "container": "array",
+      "expected_listing_count": 1,
+      "source_fields": [
+        "id",
+        "text",
+        "categories.commitment",
+        "categories.department",
+        "categories.location",
+        "categories.team",
+        "categories.allLocations",
+        "country",
+        "workplaceType",
+        "description",
+        "descriptionPlain",
+        "lists",
+        "additional",
+        "createdAt",
+        "hostedUrl",
+        "applyUrl"
+      ]
+    },
+    {
+      "path": "lever/postings_missing_optional_fields.json",
+      "platform": "lever",
+      "kind": "listing",
+      "scenario": "missing_optional_fields",
+      "provenance": "synthetic",
+      "source_ref": "https://github.com/lever/postings-api",
+      "description": "No commitment/team/department, no lists, no salary, country null, workplaceType unspecified.",
+      "container": "array",
+      "expected_listing_count": 1,
+      "source_fields": [
+        "id",
+        "text",
+        "categories.location",
+        "country",
+        "workplaceType",
+        "description",
+        "descriptionPlain",
+        "createdAt",
+        "hostedUrl",
+        "applyUrl"
+      ],
+      "absent_fields": [
+        "categories.commitment",
+        "categories.team",
+        "lists",
+        "salaryRange"
+      ],
+      "null_or_empty_fields": [
+        "country"
+      ]
+    },
+    {
+      "path": "lever/postings_multiple_locations.json",
+      "platform": "lever",
+      "kind": "listing",
+      "scenario": "multiple_locations",
+      "provenance": "synthetic",
+      "source_ref": "https://github.com/lever/postings-api",
+      "description": "categories.location is the primary location; allLocations lists every location.",
+      "container": "array",
+      "expected_listing_count": 1,
+      "source_fields": [
+        "id",
+        "text",
+        "categories.commitment",
+        "categories.department",
+        "categories.location",
+        "categories.team",
+        "categories.allLocations",
+        "country",
+        "workplaceType",
+        "description",
+        "descriptionPlain",
+        "lists",
+        "additional",
+        "createdAt",
+        "hostedUrl",
+        "applyUrl"
+      ]
+    },
+    {
+      "path": "lever/postings_remote.json",
+      "platform": "lever",
+      "kind": "listing",
+      "scenario": "remote",
+      "provenance": "synthetic",
+      "source_ref": "https://github.com/lever/postings-api",
+      "description": "workplaceType is remote; location is just 'Remote'.",
+      "container": "array",
+      "expected_listing_count": 1,
+      "source_fields": [
+        "id",
+        "text",
+        "categories.commitment",
+        "categories.department",
+        "categories.location",
+        "categories.team",
+        "categories.allLocations",
+        "country",
+        "workplaceType",
+        "description",
+        "descriptionPlain",
+        "lists",
+        "additional",
+        "createdAt",
+        "hostedUrl",
+        "applyUrl"
+      ],
+      "null_or_empty_fields": [
+        "country"
+      ]
+    },
+    {
+      "path": "lever/postings_html_description.json",
+      "platform": "lever",
+      "kind": "listing",
+      "scenario": "html_description",
+      "provenance": "synthetic",
+      "source_ref": "https://github.com/lever/postings-api",
+      "description": "HTML description alongside its descriptionPlain counterpart.",
+      "container": "array",
+      "expected_listing_count": 1,
+      "source_fields": [
+        "id",
+        "text",
+        "categories.commitment",
+        "categories.department",
+        "categories.location",
+        "categories.team",
+        "categories.allLocations",
+        "country",
+        "workplaceType",
+        "description",
+        "descriptionPlain",
+        "lists",
+        "additional",
+        "createdAt",
+        "hostedUrl",
+        "applyUrl"
+      ]
+    },
+    {
+      "path": "lever/postings_missing_posted_date.json",
+      "platform": "lever",
+      "kind": "listing",
+      "scenario": "missing_posted_date",
+      "provenance": "synthetic",
+      "source_ref": "https://github.com/lever/postings-api",
+      "description": "No createdAt, so no posted date is available.",
+      "container": "array",
+      "expected_listing_count": 1,
+      "source_fields": [
+        "id",
+        "text",
+        "categories.commitment",
+        "categories.department",
+        "categories.location",
+        "categories.team",
+        "categories.allLocations",
+        "country",
+        "workplaceType",
+        "description",
+        "descriptionPlain",
+        "lists",
+        "additional",
+        "hostedUrl",
+        "applyUrl"
+      ],
+      "absent_fields": [
+        "createdAt"
+      ]
+    },
+    {
+      "path": "lever/postings_empty.json",
+      "platform": "lever",
+      "kind": "listing",
+      "scenario": "empty",
+      "provenance": "synthetic",
+      "source_ref": "https://github.com/lever/postings-api",
+      "description": "A site with no postings: an empty array.",
+      "container": "array",
+      "expected_listing_count": 0
+    },
+    {
+      "path": "lever/postings_invalid_incomplete.json",
+      "platform": "lever",
+      "kind": "listing",
+      "scenario": "invalid",
+      "provenance": "synthetic",
+      "source_ref": "https://github.com/lever/postings-api",
+      "description": "Two incomplete postings: one without text (title), one without hostedUrl/applyUrl.",
+      "container": "array",
+      "expected_listing_count": 2,
+      "absent_fields_per_item": [
+        [
+          "text"
+        ],
+        [
+          "hostedUrl",
+          "applyUrl"
+        ]
+      ]
+    },
+    {
+      "path": "ashby/board_complete.json",
+      "platform": "ashby",
+      "kind": "listing",
+      "scenario": "complete",
+      "provenance": "synthetic",
+      "source_ref": "https://developers.ashbyhq.com/docs/public-job-posting-api",
+      "description": "One complete, listed on-site posting.",
+      "container": "jobs",
+      "expected_listing_count": 1,
+      "source_fields": [
+        "id",
+        "title",
+        "department",
+        "team",
+        "employmentType",
+        "location",
+        "secondaryLocations",
+        "isRemote",
+        "workplaceType",
+        "isListed",
+        "publishedAt",
+        "jobUrl",
+        "applyUrl",
+        "descriptionHtml",
+        "descriptionPlain",
+        "address.postalAddress"
+      ]
+    },
+    {
+      "path": "ashby/board_missing_optional_fields.json",
+      "platform": "ashby",
+      "kind": "listing",
+      "scenario": "missing_optional_fields",
+      "provenance": "synthetic",
+      "source_ref": "https://developers.ashbyhq.com/docs/public-job-posting-api",
+      "description": "Optional fields omitted entirely (Ashby omits missing data): no team, employmentType, secondaryLocations or address.",
+      "container": "jobs",
+      "expected_listing_count": 1,
+      "source_fields": [
+        "id",
+        "title",
+        "department",
+        "location",
+        "isRemote",
+        "workplaceType",
+        "isListed",
+        "publishedAt",
+        "jobUrl",
+        "applyUrl",
+        "descriptionHtml",
+        "descriptionPlain"
+      ],
+      "absent_fields": [
+        "team",
+        "employmentType",
+        "secondaryLocations",
+        "address"
+      ]
+    },
+    {
+      "path": "ashby/board_multiple_locations.json",
+      "platform": "ashby",
+      "kind": "listing",
+      "scenario": "multiple_locations",
+      "provenance": "synthetic",
+      "source_ref": "https://developers.ashbyhq.com/docs/public-job-posting-api",
+      "description": "Primary location plus two secondaryLocations; a Hybrid role (isRemote is true for hybrid).",
+      "container": "jobs",
+      "expected_listing_count": 1,
+      "source_fields": [
+        "id",
+        "title",
+        "department",
+        "team",
+        "employmentType",
+        "location",
+        "secondaryLocations",
+        "isRemote",
+        "workplaceType",
+        "isListed",
+        "publishedAt",
+        "jobUrl",
+        "applyUrl",
+        "descriptionHtml",
+        "descriptionPlain",
+        "address.postalAddress"
+      ]
+    },
+    {
+      "path": "ashby/board_remote.json",
+      "platform": "ashby",
+      "kind": "listing",
+      "scenario": "remote",
+      "provenance": "synthetic",
+      "source_ref": "https://developers.ashbyhq.com/docs/public-job-posting-api",
+      "description": "workplaceType Remote with isRemote true.",
+      "container": "jobs",
+      "expected_listing_count": 1,
+      "source_fields": [
+        "id",
+        "title",
+        "department",
+        "team",
+        "employmentType",
+        "location",
+        "secondaryLocations",
+        "isRemote",
+        "workplaceType",
+        "isListed",
+        "publishedAt",
+        "jobUrl",
+        "applyUrl",
+        "descriptionHtml",
+        "descriptionPlain",
+        "address.postalAddress"
+      ]
+    },
+    {
+      "path": "ashby/board_html_description.json",
+      "platform": "ashby",
+      "kind": "listing",
+      "scenario": "html_description",
+      "provenance": "synthetic",
+      "source_ref": "https://developers.ashbyhq.com/docs/public-job-posting-api",
+      "description": "Rich HTML in descriptionHtml with the plain-text counterpart.",
+      "container": "jobs",
+      "expected_listing_count": 1,
+      "source_fields": [
+        "id",
+        "title",
+        "department",
+        "team",
+        "employmentType",
+        "location",
+        "secondaryLocations",
+        "isRemote",
+        "workplaceType",
+        "isListed",
+        "publishedAt",
+        "jobUrl",
+        "applyUrl",
+        "descriptionHtml",
+        "descriptionPlain",
+        "address.postalAddress"
+      ]
+    },
+    {
+      "path": "ashby/board_missing_published_at.json",
+      "platform": "ashby",
+      "kind": "listing",
+      "scenario": "missing_posted_date",
+      "provenance": "synthetic",
+      "source_ref": "https://developers.ashbyhq.com/docs/public-job-posting-api",
+      "description": "No publishedAt.",
+      "container": "jobs",
+      "expected_listing_count": 1,
+      "source_fields": [
+        "id",
+        "title",
+        "department",
+        "team",
+        "employmentType",
+        "location",
+        "secondaryLocations",
+        "isRemote",
+        "workplaceType",
+        "isListed",
+        "jobUrl",
+        "applyUrl",
+        "descriptionHtml",
+        "descriptionPlain",
+        "address.postalAddress"
+      ],
+      "absent_fields": [
+        "publishedAt"
+      ]
+    },
+    {
+      "path": "ashby/board_unlisted_job.json",
+      "platform": "ashby",
+      "kind": "listing",
+      "scenario": "unlisted_job",
+      "provenance": "synthetic",
+      "source_ref": "https://developers.ashbyhq.com/docs/public-job-posting-api",
+      "description": "isListed false: reachable only by direct link, so it must not be collected from the board.",
+      "container": "jobs",
+      "expected_listing_count": 1,
+      "source_fields": [
+        "id",
+        "title",
+        "department",
+        "team",
+        "employmentType",
+        "location",
+        "secondaryLocations",
+        "isRemote",
+        "workplaceType",
+        "isListed",
+        "publishedAt",
+        "jobUrl",
+        "applyUrl",
+        "descriptionHtml",
+        "descriptionPlain",
+        "address.postalAddress"
+      ]
+    },
+    {
+      "path": "ashby/board_empty.json",
+      "platform": "ashby",
+      "kind": "listing",
+      "scenario": "empty",
+      "provenance": "synthetic",
+      "source_ref": "https://developers.ashbyhq.com/docs/public-job-posting-api",
+      "description": "A board with no jobs.",
+      "container": "jobs",
+      "expected_listing_count": 0
+    },
+    {
+      "path": "ashby/board_invalid_incomplete.json",
+      "platform": "ashby",
+      "kind": "listing",
+      "scenario": "invalid",
+      "provenance": "synthetic",
+      "source_ref": "https://developers.ashbyhq.com/docs/public-job-posting-api",
+      "description": "Two incomplete jobs: one without title, one without jobUrl/applyUrl.",
+      "container": "jobs",
+      "expected_listing_count": 2,
+      "absent_fields_per_item": [
+        [
+          "title"
+        ],
+        [
+          "jobUrl",
+          "applyUrl"
+        ]
+      ]
+    },
+    {
+      "path": "jsonld/single_job_posting.html",
+      "platform": "jsonld",
+      "kind": "page",
+      "scenario": "single_job_posting",
+      "provenance": "synthetic",
+      "source_ref": "https://developers.google.com/search/docs/appearance/structured-data/job-posting",
+      "description": "One JobPosting in one JSON-LD block, with salary, identifier and validThrough.",
+      "expected_listing_count": 1,
+      "variants": [
+        "single"
+      ],
+      "required_selectors": [
+        {
+          "selector": "script[type='application/ld+json']",
+          "min_count": 1
+        }
+      ],
+      "source_fields": [
+        "title",
+        "description",
+        "datePosted",
+        "hiringOrganization.name",
+        "jobLocation",
+        "employmentType",
+        "identifier.value",
+        "baseSalary",
+        "validThrough",
+        "url"
+      ]
+    },
+    {
+      "path": "jsonld/multiple_job_postings.html",
+      "platform": "jsonld",
+      "kind": "page",
+      "scenario": "multiple_job_postings",
+      "provenance": "synthetic",
+      "source_ref": "https://developers.google.com/search/docs/appearance/structured-data/job-posting",
+      "description": "A listing page with two JobPosting blocks, each in its own script element.",
+      "expected_listing_count": 2,
+      "variants": [
+        "multiple"
+      ],
+      "required_selectors": [
+        {
+          "selector": "script[type='application/ld+json']",
+          "min_count": 1
+        }
+      ],
+      "source_fields": [
+        "title",
+        "description",
+        "datePosted",
+        "hiringOrganization.name",
+        "jobLocation",
+        "employmentType",
+        "identifier.value"
+      ]
+    },
+    {
+      "path": "jsonld/graph_representation.html",
+      "platform": "jsonld",
+      "kind": "page",
+      "scenario": "graph",
+      "provenance": "synthetic",
+      "source_ref": "https://developers.google.com/search/docs/appearance/structured-data/job-posting",
+      "description": "A single block whose @graph holds WebSite, Organization and one JobPosting.",
+      "expected_listing_count": 1,
+      "variants": [
+        "graph",
+        "mixed"
+      ],
+      "required_selectors": [
+        {
+          "selector": "script[type='application/ld+json']",
+          "min_count": 1
+        }
+      ],
+      "source_fields": [
+        "title",
+        "description",
+        "datePosted",
+        "hiringOrganization.name",
+        "jobLocation",
+        "employmentType",
+        "identifier.value"
+      ]
+    },
+    {
+      "path": "jsonld/missing_date_posted.html",
+      "platform": "jsonld",
+      "kind": "page",
+      "scenario": "missing_posted_date",
+      "provenance": "synthetic",
+      "source_ref": "https://developers.google.com/search/docs/appearance/structured-data/job-posting",
+      "description": "A JobPosting without datePosted (a property Google requires).",
+      "expected_listing_count": 1,
+      "variants": [
+        "single",
+        "missing_date_posted"
+      ],
+      "required_selectors": [
+        {
+          "selector": "script[type='application/ld+json']",
+          "min_count": 1
+        }
+      ],
+      "source_fields": [
+        "title",
+        "description",
+        "hiringOrganization.name",
+        "jobLocation",
+        "employmentType",
+        "identifier.value"
+      ],
+      "absent_fields": [
+        "datePosted"
+      ]
+    },
+    {
+      "path": "jsonld/invalid_structured_data.html",
+      "platform": "jsonld",
+      "kind": "page",
+      "scenario": "invalid",
+      "provenance": "synthetic",
+      "source_ref": "https://developers.google.com/search/docs/appearance/structured-data/job-posting",
+      "description": "Three blocks: truncated JSON (unrecoverable), JSON with a trailing comma (strict json fails; extruct recovers it), and valid JSON that is a JobPosting without title.",
+      "expected_listing_count": 1,
+      "variants": [
+        "invalid"
+      ],
+      "required_selectors": [
+        {
+          "selector": "script[type='application/ld+json']",
+          "min_count": 1
+        }
+      ],
+      "invalid_blocks": 2,
+      "absent_fields": [
+        "title"
+      ]
+    },
+    {
+      "path": "jsonld/mixed_schema_objects.html",
+      "platform": "jsonld",
+      "kind": "page",
+      "scenario": "mixed_schema_objects",
+      "provenance": "synthetic",
+      "source_ref": "https://developers.google.com/search/docs/appearance/structured-data/job-posting",
+      "description": "Organization and BreadcrumbList blocks, plus one JSON array holding a Product and a JobPosting.",
+      "expected_listing_count": 1,
+      "variants": [
+        "mixed"
+      ],
+      "required_selectors": [
+        {
+          "selector": "script[type='application/ld+json']",
+          "min_count": 1
+        }
+      ],
+      "source_fields": [
+        "title",
+        "description",
+        "datePosted",
+        "hiringOrganization.name",
+        "jobLocation",
+        "employmentType",
+        "identifier.value"
+      ]
+    },
+    {
+      "path": "jsonld/remote_job_posting.html",
+      "platform": "jsonld",
+      "kind": "page",
+      "scenario": "remote",
+      "provenance": "synthetic",
+      "source_ref": "https://developers.google.com/search/docs/appearance/structured-data/job-posting",
+      "description": "Fully remote job: jobLocationType TELECOMMUTE and applicantLocationRequirements, no jobLocation.",
+      "expected_listing_count": 1,
+      "variants": [
+        "single"
+      ],
+      "required_selectors": [
+        {
+          "selector": "script[type='application/ld+json']",
+          "min_count": 1
+        }
+      ],
+      "source_fields": [
+        "title",
+        "description",
+        "datePosted",
+        "hiringOrganization.name",
+        "employmentType",
+        "identifier.value",
+        "jobLocationType",
+        "applicantLocationRequirements"
+      ],
+      "absent_fields": [
+        "jobLocation"
+      ]
+    },
+    {
+      "path": "jsonld/multiple_locations_html_description.html",
+      "platform": "jsonld",
+      "kind": "page",
+      "scenario": "multiple_locations",
+      "provenance": "synthetic",
+      "source_ref": "https://developers.google.com/search/docs/appearance/structured-data/job-posting",
+      "description": "jobLocation array, employmentType array, HTML-escaped description and a datePosted with an explicit offset.",
+      "expected_listing_count": 1,
+      "variants": [
+        "single"
+      ],
+      "required_selectors": [
+        {
+          "selector": "script[type='application/ld+json']",
+          "min_count": 1
+        }
+      ],
+      "source_fields": [
+        "title",
+        "description",
+        "datePosted",
+        "hiringOrganization.name",
+        "jobLocation",
+        "employmentType",
+        "identifier.value"
+      ]
+    },
+    {
+      "path": "generic/listing_unordered_list.html",
+      "platform": "generic",
+      "kind": "listing",
+      "scenario": "listing_list",
+      "provenance": "synthetic",
+      "source_ref": "synthetic structural variation (no external source)",
+      "description": "Careers page listing jobs as list items with relative links and a location span.",
+      "expected_listing_count": 3,
+      "listing_selector": "li.job",
+      "required_selectors": [
+        {
+          "selector": "li.job a.job-link[href]",
+          "min_count": 3
+        }
+      ]
+    },
+    {
+      "path": "generic/listing_cards.html",
+      "platform": "generic",
+      "kind": "listing",
+      "scenario": "listing_cards",
+      "provenance": "synthetic",
+      "source_ref": "synthetic structural variation (no external source)",
+      "description": "Card layout with data-job-id attributes and absolute links.",
+      "expected_listing_count": 2,
+      "listing_selector": "div.job-card",
+      "required_selectors": [
+        {
+          "selector": "div.job-card[data-job-id]",
+          "min_count": 2
+        }
+      ]
+    },
+    {
+      "path": "generic/listing_empty.html",
+      "platform": "generic",
+      "kind": "listing",
+      "scenario": "empty",
+      "provenance": "synthetic",
+      "source_ref": "synthetic structural variation (no external source)",
+      "description": "A careers page with no open positions.",
+      "expected_listing_count": 0,
+      "listing_selector": "li.job, div.job-card",
+      "required_selectors": [
+        {
+          "selector": "p.no-openings",
+          "min_count": 1
+        }
+      ]
+    },
+    {
+      "path": "generic/listing_js_rendered_shell.html",
+      "platform": "generic",
+      "kind": "listing",
+      "scenario": "js_rendered_shell",
+      "provenance": "synthetic",
+      "source_ref": "synthetic structural variation (no external source)",
+      "description": "Client-side rendered page: an empty mount point and a script, no job markup in the HTML.",
+      "expected_listing_count": 0,
+      "listing_selector": "li.job, div.job-card",
+      "required_selectors": [
+        {
+          "selector": "div#root",
+          "min_count": 1
+        },
+        {
+          "selector": "noscript",
+          "min_count": 1
+        }
+      ]
+    },
+    {
+      "path": "generic/detail_microdata.html",
+      "platform": "generic",
+      "kind": "detail",
+      "scenario": "detail_microdata",
+      "provenance": "synthetic",
+      "source_ref": "synthetic structural variation (no external source)",
+      "description": "A job detail page marked up with schema.org microdata (no JSON-LD).",
+      "expected_listing_count": 1,
+      "listing_selector": "[itemtype$='JobPosting']",
+      "required_selectors": [
+        {
+          "selector": "[itemtype$='JobPosting']",
+          "min_count": 1
+        },
+        {
+          "selector": "[itemprop='datePosted']",
+          "min_count": 1
+        }
+      ]
+    },
+    {
+      "path": "generic/detail_plain_html.html",
+      "platform": "generic",
+      "kind": "detail",
+      "scenario": "detail_plain_html",
+      "provenance": "synthetic",
+      "source_ref": "synthetic structural variation (no external source)",
+      "description": "A job detail page with no structured data: heading, labelled location and a relative-date text.",
+      "expected_listing_count": 1,
+      "listing_selector": "article.job-detail",
+      "required_selectors": [
+        {
+          "selector": "h1",
+          "min_count": 1
+        },
+        {
+          "selector": "dd.posted",
+          "min_count": 1
+        },
+        {
+          "selector": "a.apply[href]",
+          "min_count": 1
+        }
+      ]
+    }
+  ]
+}

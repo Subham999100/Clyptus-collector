@@ -59,6 +59,13 @@ ruff check .
 ruff format --check .
 ```
 
+## Fixtures
+
+`tests/fixtures/` holds small **synthetic** samples of Greenhouse, Lever, Ashby, JSON-LD and
+generic HTML pages, described by `tests/fixtures/manifest.json`. How their fields map onto
+`JobRecord` (and what still needs live validation) is in
+[docs/platform-field-mapping.md](docs/platform-field-mapping.md).
+
 ## Docker
 
 ```bash

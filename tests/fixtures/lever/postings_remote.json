@@ -1,0 +1,42 @@
+[
+  {
+    "id": "00000000-0000-4000-8000-000000000004",
+    "text": "Support Engineer",
+    "categories": {
+      "commitment": "Full-time",
+      "department": "Support",
+      "location": "Remote",
+      "team": "Support",
+      "allLocations": [
+        "Remote"
+      ]
+    },
+    "country": null,
+    "workplaceType": "remote",
+    "opening": "<div>We are hiring a designer.</div>",
+    "openingPlain": "We are hiring a designer.",
+    "description": "<div>We are hiring a designer.</div>",
+    "descriptionPlain": "We are hiring a designer.",
+    "descriptionBody": "<div>You will shape our product.</div>",
+    "descriptionBodyPlain": "You will shape our product.",
+    "lists": [
+      {
+        "text": "What you will do",
+        "content": "<li>Design flows</li><li>Run research</li>"
+      }
+    ],
+    "additional": "<div>Equal opportunity employer.</div>",
+    "additionalPlain": "Equal opportunity employer.",
+    "createdAt": 1791194400000,
+    "hostedUrl": "https://jobs.lever.co/example-corp-fixture/00000000-0000-4000-8000-000000000004",
+    "applyUrl": "https://jobs.lever.co/example-corp-fixture/00000000-0000-4000-8000-000000000004/apply",
+    "salaryRange": {
+      "currency": "INR",
+      "interval": "per-year-salary",
+      "min": 1800000,
+      "max": 2400000
+    },
+    "salaryDescription": "<div>INR 18-24 lakh per year</div>",
+    "salaryDescriptionPlain": "INR 18-24 lakh per year"
+  }
+]

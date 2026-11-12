@@ -1,0 +1,17 @@
+{
+  "id": 8800000001,
+  "internal_job_id": 7700000001,
+  "title": "Senior Backend Engineer",
+  "company_name": "Example Corp",
+  "updated_at": "2026-10-12T09:30:00-04:00",
+  "application_deadline": null,
+  "requisition_id": "REQ-1001",
+  "location": {
+    "name": "Bengaluru, India"
+  },
+  "content": "&lt;p&gt;Build and operate backend services.&lt;/p&gt;",
+  "absolute_url": "https://boards.greenhouse.io/example-corp-fixture/jobs/8800000001",
+  "language": "en",
+  "metadata": null,
+  "data_compliance": []
+}

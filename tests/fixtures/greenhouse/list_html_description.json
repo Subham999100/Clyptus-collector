@@ -1,0 +1,38 @@
+{
+  "jobs": [
+    {
+      "id": 8800000005,
+      "internal_job_id": 7700000001,
+      "title": "Senior Backend Engineer",
+      "updated_at": "2026-10-12T09:30:00-04:00",
+      "requisition_id": "REQ-1001",
+      "location": {
+        "name": "Bengaluru, India"
+      },
+      "absolute_url": "https://boards.greenhouse.io/example-corp-fixture/jobs/8800000005",
+      "language": "en",
+      "metadata": null,
+      "content": "&lt;h3&gt;About the role&lt;/h3&gt;&lt;p&gt;R&amp;amp;D team &amp;mdash; you will own services.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;Python&lt;/li&gt;&lt;li&gt;SQL&lt;/li&gt;&lt;/ul&gt;",
+      "departments": [
+        {
+          "id": 101,
+          "name": "Engineering",
+          "parent_id": null,
+          "child_ids": []
+        }
+      ],
+      "offices": [
+        {
+          "id": 201,
+          "name": "Bengaluru",
+          "location": "Bengaluru, India",
+          "parent_id": null,
+          "child_ids": []
+        }
+      ]
+    }
+  ],
+  "meta": {
+    "total": 1
+  }
+}

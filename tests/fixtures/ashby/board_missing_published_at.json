@@ -1,0 +1,28 @@
+{
+  "apiVersion": "1",
+  "jobs": [
+    {
+      "id": "00000000-0000-4000-8000-000000000006",
+      "title": "Data Engineer",
+      "department": "Engineering",
+      "team": "Data Platform",
+      "employmentType": "FullTime",
+      "location": "Bengaluru, India",
+      "secondaryLocations": [],
+      "isRemote": false,
+      "workplaceType": "OnSite",
+      "isListed": true,
+      "jobUrl": "https://jobs.ashbyhq.com/example-corp-fixture/00000000-0000-4000-8000-000000000006",
+      "applyUrl": "https://jobs.ashbyhq.com/example-corp-fixture/00000000-0000-4000-8000-000000000006/application",
+      "descriptionHtml": "<p>Build data pipelines.</p>",
+      "descriptionPlain": "Build data pipelines.",
+      "address": {
+        "postalAddress": {
+          "addressLocality": "Bengaluru",
+          "addressRegion": "Karnataka",
+          "addressCountry": "India"
+        }
+      }
+    }
+  ]
+}

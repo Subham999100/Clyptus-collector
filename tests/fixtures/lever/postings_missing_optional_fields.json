@@ -1,0 +1,20 @@
+[
+  {
+    "id": "00000000-0000-4000-8000-000000000002",
+    "text": "Product Designer",
+    "categories": {
+      "location": "Pune, India"
+    },
+    "country": null,
+    "workplaceType": "unspecified",
+    "opening": "<div>We are hiring a designer.</div>",
+    "openingPlain": "We are hiring a designer.",
+    "description": "<div>We are hiring a designer.</div>",
+    "descriptionPlain": "We are hiring a designer.",
+    "descriptionBody": "<div>You will shape our product.</div>",
+    "descriptionBodyPlain": "You will shape our product.",
+    "createdAt": 1791194400000,
+    "hostedUrl": "https://jobs.lever.co/example-corp-fixture/00000000-0000-4000-8000-000000000002",
+    "applyUrl": "https://jobs.lever.co/example-corp-fixture/00000000-0000-4000-8000-000000000002/apply"
+  }
+]
