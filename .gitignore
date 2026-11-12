@@ -1,0 +1,34 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.pytest_tmp/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Runtime artifacts
+data/*
+!data/.gitkeep
+output/*
+!output/.gitkeep
+*.db
+*.sqlite3
+*.xlsx
+*.db-journal
+*.db-wal
+*.db-shm
+*.tmp
+*.log
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key

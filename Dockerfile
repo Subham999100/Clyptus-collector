@@ -1,0 +1,19 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN useradd --create-home --uid 1000 collector
+
+WORKDIR /app
+
+COPY pyproject.toml README.md ./
+COPY collector ./collector
+RUN pip install . \
+    && mkdir -p data output \
+    && chown -R collector:collector /app
+
+USER collector
+
+CMD ["collector", "--help"]
