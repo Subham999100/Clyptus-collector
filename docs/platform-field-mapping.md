@@ -3,11 +3,12 @@
 Research and fixture notes for the interfaces the collector reads, and how their fields map onto
 the existing `JobRecord` ([collector/models.py](../collector/models.py), unchanged).
 
-**Status:** the **Greenhouse** (Phase 3 step 1) and **Lever** (step 2) adapters are implemented
+**Status:** the **Greenhouse** (Phase 3 step 1), **Lever** (step 2), **Ashby** (step 3) and
+**JSON-LD** (step 4) adapters are implemented
 ([greenhouse.py](../collector/adapters/greenhouse.py), [lever.py](../collector/adapters/lever.py),
+[ashby.py](../collector/adapters/ashby.py), [json_ld.py](../collector/adapters/json_ld.py),
 sharing [common.py](../collector/adapters/common.py)); their sections below are the actual
-behaviour. The Ashby, JSON-LD and generic sections are still *proposals* from Phase 2 research.
-No spider exists yet.
+behaviour. The generic section is still a *proposal* from Phase 2 research. No spider exists yet.
 
 ## Read this first
 
@@ -29,8 +30,8 @@ No spider exists yet.
 | --- | --- | --- |
 | Greenhouse Job Board API | <https://docs.greenhouse.io/job-board.html> | official, read |
 | Lever Postings API | <https://github.com/lever/postings-api> | official README, read (re-read in Phase 3 step 2); **`createdAt` is not documented there at all**, and the response wrapper is not shown |
-| Ashby Job Postings API | <https://developers.ashbyhq.com/docs/public-job-posting-api> | official, read; `id` and compensation placement not reliably documented |
-| JSON-LD `JobPosting` | <https://developers.google.com/search/docs/appearance/structured-data/job-posting> and <https://schema.org/JobPosting> | official, read |
+| Ashby Job Postings API | <https://developers.ashbyhq.com/docs/public-job-posting-api> | official, read (re-read in Phase 3 step 3); **`id` is not in the official field table**, compensation placement inconsistent; auth, pagination, rate limits and errors are not documented |
+| JSON-LD `JobPosting` | <https://developers.google.com/search/docs/appearance/structured-data/job-posting> and <https://schema.org/JobPosting> | official, read (re-read in Phase 3 step 4); `datePosted` is documented as "the original date the employer posted the job" |
 | Lever `createdAt` as epoch ms | third-party scraper/wrapper descriptions (search results) | **unofficial, unverified; not used by the adapter** |
 
 ## Platform research summary
@@ -77,9 +78,10 @@ Common rules for every platform:
   whitespace, truncate. `JobRecord` has no limit; the Greenhouse and Lever adapters use 500
   characters.
 - **Identity:** `external_id` is only set when the platform guarantees stability; Phase 1 scopes
-  it by `platform + company_name`. Known limitation (`Infosys` vs `Infosys Limited`). The Greenhouse
-  and Lever adapters additionally scope the id by board token / site slug (see their sections);
-  Ashby is still open.
+  it by `platform + company_name`. Known limitation (`Infosys` vs `Infosys Limited`). The
+  Greenhouse, Lever and Ashby adapters additionally scope the id by board token / site slug /
+  board name (see their sections); JSON-LD stores `identifier` unscoped (it is already the hiring
+  organization's own job id).
 
 ### Greenhouse
 
@@ -307,23 +309,91 @@ Source: <https://github.com/lever/postings-api>.
 
 ### Ashby
 
-| JobRecord | Source | Notes |
+Implemented in [collector/adapters/ashby.py](../collector/adapters/ashby.py) (Phase 3 step 3), on
+the result types, URL checks and ISO-date helper shared in
+[common.py](../collector/adapters/common.py). Tests:
+[tests/test_ashby_adapter.py](../tests/test_ashby_adapter.py).
+
+**Interface** (pure: no network, files, database, logging, environment or clock; input not mutated):
+
+```python
+extract_ashby_jobs(
+    payload,                    # decoded JSON: {"apiVersion": "1", "jobs": [...]}
+    *, company_name,            # trusted configuration
+    board_name,                 # [A-Za-z0-9][A-Za-z0-9._-]*
+    source_url,                 # URL that was requested
+    collected_at,               # timezone-aware, injected
+    company_website=None,
+) -> AshbyExtraction            # records, failures, warnings, skipped, response_type, job_count
+```
+
+Invalid *configuration* raises `ValueError`. Problems in the *response* never raise: fatal ones
+are failures, recoverable ones are warnings, and unlisted jobs are skips. **Response type:** only
+the `{"jobs": [...]}` object (*listing*); the documentation shows no single-job shape, so anything
+else (array, error body, no `jobs` list) is one `invalid_response` failure. `apiVersion` is not
+checked; unknown fields are ignored.
+
+| JobRecord | Source | Behaviour |
 | --- | --- | --- |
-| `title` | `title` | |
-| `company_name` | seed/config (board name) | not in the response |
-| `apply_url` | `applyUrl`, else `jobUrl` | same fallback assumption as Lever |
-| `external_id` | `id` | **ASSUMPTION:** present and stable; not in the official field table |
-| `location` | `location`; `secondaryLocations[].location` appended with `"; "` | |
-| `work_type` | `workplaceType`: `Remote`→`remote`, `Hybrid`→`hybrid`, `OnSite`→`onsite` | do **not** use `isRemote` alone: it is true for Hybrid too |
-| `employment_type` | `employmentType` | stored as the raw enum value |
-| `salary_text` | `compensation` summary (only with `includeCompensation=true`) | docs are inconsistent on where it sits; default `None` |
-| `posted_date` | `publishedAt` | ISO 8601 with offset; `posted_date_source="platform"`; documented as the *last* publication, so a re-publish can move it |
-| `description_snippet` | `descriptionPlain`, else stripped `descriptionHtml` | |
+| `title` | `title` | whitespace collapsed; missing/blank → failure |
+| `company_name` | **configuration only** | Ashby responses carry none; never inferred from text |
+| `apply_url` | `applyUrl`, else `jobUrl` | `applyUrl` (the hosted application page) preferred. `jobUrl` (the posting page) is used when `applyUrl` is absent, or present but unusable (then with a warning). Both unusable → failure. No URL is ever built |
+| `external_id` | `"<board_name>:<id>"` | **ASSUMPTION:** `id` is absent from the official field table; observed as a UUID string. UUIDs are canonicalized (lower case, hyphenated); other strings kept; absent `id` → `None` (identity falls back to the normalized apply URL); wrong type / blank → failure |
+| `location` | `location`, then `secondaryLocations[].location` | primary first, then the rest in source order, case-insensitive duplicates removed, joined with `"; "`; the structured `address` objects are not read; blank → `None` |
+| `work_type` | `workplaceType` | `Remote`→`remote`, `Hybrid`→`hybrid`, `OnSite`→`onsite` (case-insensitive); unknown values and absence → `None`. **`isRemote` is deliberately not read** (documented as true for Hybrid too) and the type is never inferred from location or description |
+| `employment_type` | `employmentType` | verbatim (whitespace collapsed); the docs list `FullTime`, `PartTime`, `Intern`, `Contract`, `Temporary`, but the value is stored as sent, not mapped onto a vocabulary |
+| `salary_text` | none | always `None` (`compensation` only appears with `includeCompensation=true` and its placement is documented inconsistently; not mapped) |
+| `posted_date` | `publishedAt` | `posted_date_source="platform"`; see Dates |
+| `description_snippet` | `descriptionPlain`, else `descriptionHtml` | as for Lever: plain text is never parsed as HTML; HTML is converted with `selectolax` (nothing executed or fetched), 500-character snippet |
+| `company_website`, `platform`, `collected_at`, `source_url` | arguments / constant | as for Greenhouse |
 
-Rule: **skip jobs with `isListed: false`** (reachable only by direct link). Missing fields are
-omitted from the response rather than null. A closed job simply disappears from later responses.
+**Unlisted jobs are skipped, not collected.** `isListed: false` is documented as "should only be
+reachable by direct link", so the job must not be collected from the board listing. It becomes a
+`SkippedJob` (`index`, `job_id`, safe `reason`) in `AshbyExtraction.skipped` — a rule, not a data
+problem — and is never extracted, even if it is also malformed. For a recognized response
+`job_count == len(records) + len(failures) + len(skipped)`, so nothing is dropped silently.
+`isListed` absent or `null` means the job is collected (the response came from the public board
+endpoint); a non-boolean value is an `invalid_type` failure.
 
-Fixtures (all synthetic):
+**Validation and failures.** As for Greenhouse and Lever: each job is extracted independently, a
+failure carries `kind`, `index`, `job_id` and every `FieldError` (source field names), messages
+never contain source values or HTML, and `validate_job` is the final gate. Fatal: missing/blank
+`title`, both URLs missing or unusable, unusable `id`, non-boolean `isListed`, and a wrong JSON
+type in `location`, `secondaryLocations(.location)`, `workplaceType`, `employmentType`,
+`descriptionPlain` or `descriptionHtml`. URLs must be absolute public http(s), normalized with
+`normalize_url`.
+
+**Dates.** Only ISO 8601 `publishedAt` (date, or date-time with optional `Z`/offset) is accepted,
+via the shared `read_iso_date`: the date is the one *written in the source*, offsets are not
+converted. `publishedAt` is documented as the "ISO DateTime when the job was **last** published":
+a verified publication timestamp, with the caveat that re-publishing a job moves it forward (it
+can only make an old job look newer — such a job stays in the eligible set and is never wrongly
+dropped as old).
+
+| `publishedAt` | Result |
+| --- | --- |
+| valid ISO 8601 | `posted_date` set, `"platform"`, no warning |
+| absent, `null`, blank | unknown date, no warning |
+| a string that is not valid ISO 8601 | job kept, unknown date, `invalid_date` warning |
+| not a string | job kept, unknown date, `invalid_type` warning |
+
+Nothing is substituted: not `collected_at`, and no date is parsed from free text. Jobs without a
+usable `publishedAt` are `UNKNOWN_DATE` in the Phase 1 window (kept, flagged for review).
+
+**Warnings.** As for Lever: an `applyUrl` present but unusable while `jobUrl` saved the job, plus
+the date warnings above. A job that fails for another reason still reports its warnings.
+
+**Known limitations.** No pagination (none documented), no de-duplication inside the adapter (use
+the Phase 1 `Deduper`), no salary/compensation, `department`, `team`, `isRemote` and `address`
+are not mapped. Auth, rate limits and error shapes are undocumented.
+
+**Assumptions requiring permitted live validation:** `id` exists, is a stable UUID and is unique
+within a board (it is **not** in the official field table); `applyUrl` leads to the application
+and `jobUrl` to the posting page; `publishedAt` is always ISO 8601; the response shape of error
+cases.
+
+Fixtures (all synthetic, 9): every one is exercised by the adapter tests, and every job in them is
+extracted, reported or skipped:
 [board_complete](../tests/fixtures/ashby/board_complete.json),
 [board_missing_optional_fields](../tests/fixtures/ashby/board_missing_optional_fields.json),
 [board_multiple_locations](../tests/fixtures/ashby/board_multiple_locations.json) (Hybrid, `isRemote: true`),
@@ -337,37 +407,97 @@ Source: <https://developers.ashbyhq.com/docs/public-job-posting-api>.
 
 ### JSON-LD `JobPosting`
 
-| JobRecord | Source | Notes |
+Implemented in [collector/adapters/json_ld.py](../collector/adapters/json_ld.py) (Phase 3 step 4),
+on the result types, URL checks and ISO-date helper shared in
+[common.py](../collector/adapters/common.py). Tests:
+[tests/test_json_ld_adapter.py](../tests/test_json_ld_adapter.py).
+
+**Interface** (pure: no network, files, database, logging, environment or clock; nothing in the
+page is executed — no browser, no crawler, no JavaScript):
+
+```python
+extract_json_ld_jobs(
+    html,                       # the already-fetched page markup (never fetched here)
+    *, page_url,                # public URL the page came from; source_url + apply fallback
+    collected_at,               # timezone-aware, injected
+    company_name=None,          # optional trusted configuration; wins over the page
+    company_website=None,       # optional trusted configuration; wins over the page
+) -> JsonLdExtraction           # records, failures, warnings, response_type ("listing"), job_count
+```
+
+Invalid *configuration* raises `ValueError`. Problems in the *page* never raise. A non-string page
+is one `invalid_response` failure; a page without JSON-LD blocks extracts nothing (0 jobs).
+
+**Finding postings.** Every `<script type="application/ld+json">` block (type match is
+case-insensitive) is read as text and parsed **one by one with strict `json`** — `extruct` is
+deliberately not used for extraction (its recovery/failure behaviour, below, is unsuitable).
+Within a decoded block, `JobPosting` objects are taken from a lone object, a top-level array and
+`@graph` lists, nested at most 6 levels (iterative walk; other properties are never descended
+into, so hostile nesting is bounded). `@type` may be a string or a list; the bare name, a
+schema.org IRI (`https://schema.org/JobPosting`) or a prefixed `schema:JobPosting` all count,
+case-insensitively. Objects of other types are ignored.
+
+**Extraction units** are counted in document order: each malformed (non-blank) block is one
+`invalid_response` failure (field `"(script)"`), and each identified `JobPosting` is one record
+or failure, so `job_count == len(records) + len(failures)`; a blank block carries no data and is
+ignored. One malformed block never hides the postings in the other blocks.
+
+| JobRecord | Source | Behaviour |
 | --- | --- | --- |
-| `title` | `title` | |
-| `company_name` | `hiringOrganization.name` | Google says `"confidential"` may be used for anonymous hiring; treat as not a real name (review) |
-| `company_website` | `hiringOrganization.sameAs` / `url` | optional |
-| `apply_url` | `url`, else the page URL | **ASSUMPTION:** `JobPosting` has no apply-URL property; `directApply` only hints at the experience |
-| `source_url` | the page URL | |
-| `external_id` | `identifier.value` (or text) | optional |
-| `location` | `jobLocation` (one or several) → `addressLocality, addressRegion, addressCountry`, joined with `"; "` | `addressCountry` may be a code or a name |
-| `work_type` | `jobLocationType == "TELECOMMUTE"` → `remote`; otherwise `None` | absence does not mean on-site |
-| `employment_type` | `employmentType` (string or array, joined with `", "`) | |
-| `salary_text` | `baseSalary` (`MonetaryAmount`/`QuantitativeValue`), formatted | optional |
-| `posted_date` | `datePosted` | `jsonld`; date as written, offset not converted |
-| `description_snippet` | `description` | HTML, plain, or HTML-escaped (see fixture) |
+| `title` | `title` | whitespace collapsed; missing/blank → failure |
+| `company_name` | configured `company_name`, else `hiringOrganization.name` (or a plain-string organization) | Google's `"confidential"` (anonymous hiring) is not a usable name → failure unless a name is configured; missing/blank/wrong type likewise |
+| `company_website` | configured `company_website`, else `hiringOrganization.sameAs`, else `.url` | optional: a present but unusable value is only a warning |
+| `apply_url` | `url`, else the page URL | `JobPosting` has **no apply-URL property** (`directApply` is only a boolean hint); `url` is the posting's own page. Present but unusable → warning, page URL used. No URL is ever invented |
+| `source_url` | `page_url` argument | validated and normalized |
+| `external_id` | `identifier.value` (a `PropertyValue`), or `identifier` as a plain string/number | whitespace collapsed, stored unscoped (Google: "the hiring organization's unique job ID"; `job_key` already scopes by platform + company); absent → `None` (identity falls back to the normalized apply URL); wrong type / blank → failure |
+| `location` | `jobLocation` (one `Place` or a list) | per place: `address` parts `addressLocality, addressRegion, addressCountry` joined with `", "` (`addressCountry` may be a `Country` object with a `name`), or a plain-text `address`, or the place `name`; places joined with `"; "`, case-insensitive duplicates removed. `applicantLocationRequirements` (eligibility area, not a workplace) is never read |
+| `work_type` | `jobLocationType` | `TELECOMMUTE` (string or in a list, case-insensitive) → `remote`; anything else → `None`. The vocabulary has no hybrid/on-site value and absence does not mean on-site; nothing is inferred from text |
+| `employment_type` | `employmentType` (string or array) | verbatim (whitespace collapsed), array joined with `", "` in source order, case-insensitive duplicates removed; not mapped onto a vocabulary |
+| `salary_text` | none | always `None` (`baseSalary` is structured data; formatting it into text is deferred) |
+| `posted_date` | `datePosted` | `posted_date_source="jsonld"`; see Dates |
+| `description_snippet` | `description` | HTML per Google; content without literal tags is entity-decoded once, then converted exactly as for the other adapters (`selectolax`, nothing executed, 500-character snippet) |
+| `platform`, `collected_at` | constant (`jsonld`), argument | |
 
-Structural variants the parser must handle (all in the fixtures): one block; several blocks;
-`@graph`; a JSON array holding several objects; other schema.org types mixed in; missing
-`datePosted`; malformed JSON. `validThrough` has no `JobRecord` field and is not mapped (a later
-closure phase may want it, which would need a schema decision).
+**Dates.** Only ISO 8601 `datePosted` is accepted, via the shared `read_iso_date` (same table as
+Ashby: absent/blank → unknown silently; malformed string → `invalid_date` warning; wrong type →
+`invalid_type` warning; the job is always kept). Google documents `datePosted` as "the original
+date the employer posted the job". **`validThrough` is an expiry, never a posting date, and is
+not read at all**; page modification times and `collected_at` are never substituted, and no date
+is parsed from free text. Jobs without a usable `datePosted` are `UNKNOWN_DATE` in the Phase 1
+window (kept, flagged for review).
 
-**Observed `extruct` 0.18.0 behaviour (run on these fixtures, Phase 3 should account for it):**
+**Validation and failures.** As for the other adapters: each posting is extracted independently,
+failures carry `kind`, `index` (extraction-unit position), `job_id` and every `FieldError`,
+messages never contain source values or HTML, and `validate_job` is the final gate. Fatal:
+missing/blank `title`, no usable company name, unusable `identifier`, and a wrong JSON type in
+`hiringOrganization(.name)`, `jobLocation` (and its `address` parts), `jobLocationType`,
+`employmentType` or `description`.
 
-- `@graph` is returned as **one item with no `@type`**; the adapter must flatten it.
-- A block with a trailing comma is **silently recovered** (it parses via `jstyleson`), so
-  `extruct` can report a posting that strict JSON would reject.
-- A truncated block makes `extruct.extract()` **raise `JSONDecodeError` for the whole page**
-  instead of skipping that block. Parse blocks one by one (as the fixture tests do) or catch
-  and fall back.
-- Microdata is parsed separately (`syntaxes=["microdata"]`); a page may carry both syntaxes.
+**Warnings.** A present but unusable `url` (page URL used), `hiringOrganization.sameAs`/`url`
+(website unset or the fallback used), and the date warnings above.
 
-Fixtures (all synthetic):
+**Identity fallback.** One posting without an `identifier` or usable job-specific `url` uses the
+page URL as its identity. If multiple such postings appear on the same page, each is reported as
+an `invalid_response` failure with an ambiguous-identity error instead of emitting records that
+would share one identity. Postings with distinct usable URLs can still use URL-based identity.
+
+**Known limitations.** `baseSalary`,
+`validThrough`, `directApply` and `applicantLocationRequirements` are not mapped. Microdata (the
+other structured-data syntax) is not read — that is generic-page territory. The host page itself
+may be JavaScript-rendered; this adapter only sees the HTML it is given.
+
+**Assumptions requiring permitted live validation:** `url` leads to the posting/application;
+`identifier` is stable within an organization; real-world `@type`/`@graph` shapes beyond the
+documented ones.
+
+Historical note from Phase 2 (why strict `json` instead of `extruct` 0.18.0): `extruct` returns
+`@graph` as one item with no `@type`, silently recovers blocks with trailing commas, raises
+`JSONDecodeError` for the **whole page** on one truncated block, and parses microdata separately.
+Parsing blocks one by one with strict `json` keeps failures isolated and explicit. `extruct`
+remains a declared dependency for later generic-page work.
+
+Fixtures (all synthetic, 8): every one is exercised by the adapter tests, and every posting or
+malformed block in them is extracted or reported:
 [single_job_posting](../tests/fixtures/jsonld/single_job_posting.html),
 [multiple_job_postings](../tests/fixtures/jsonld/multiple_job_postings.html) (2),
 [graph_representation](../tests/fixtures/jsonld/graph_representation.html),
@@ -402,15 +532,17 @@ Fixtures (all synthetic):
 
 No `JobRecord` field exists for: Greenhouse `requisition_id`, `departments`, `offices`,
 `language`, `application_deadline`; Lever `department`/`team`, structured `salaryRange`; Ashby
-`department`/`team`, structured compensation; JSON-LD `validThrough`,
-`applicantLocationRequirements`. These are deliberately dropped until a schema change is approved.
+`department`/`team`, `address`, structured compensation; JSON-LD `validThrough`, `baseSalary`,
+`directApply`, `applicantLocationRequirements`. These are deliberately dropped until a schema
+change is approved.
 
 ## Assumptions requiring live validation
 
 1. Lever publication date: `createdAt` is undocumented (unit and meaning unverified) and is
    deliberately **not mapped**; Lever jobs have an unknown posted date until a verified field is
    confirmed.
-2. Ashby `id` presence/stability, and where `compensation` appears with `includeCompensation=true`.
+2. Ashby `id` presence/stability (it is **not** in the official field table; the adapter maps it
+   as an assumption), and where `compensation` appears with `includeCompensation=true`.
 3. Pagination behaviour and page size for Greenhouse (none documented), Lever and Ashby on large
    boards.
 4. Whether the API hosts' `robots.txt` and terms allow automated reads (the project requires
@@ -420,4 +552,5 @@ No `JobRecord` field exists for: Greenhouse `requisition_id`, `departments`, `of
 7. Whether Greenhouse boards expose workplace type or employment type through custom `metadata`.
 8. Greenhouse single-job requests per job are acceptable at the expected volume (needed for
    `first_published`).
-9. The Greenhouse and Lever adapters' own assumptions (listed in their sections above).
+9. The adapters' own assumptions (listed per adapter in their sections above), including JSON-LD
+   `url`/`identifier` semantics on real pages.

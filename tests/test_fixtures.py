@@ -316,9 +316,18 @@ def test_no_fixture_is_claimed_to_be_a_captured_response() -> None:
 
 
 def test_no_extraction_code_or_schema_change_was_added() -> None:
-    # Phase 3 added the Greenhouse and Lever adapters and their shared helpers; any other adapter
-    # still needs its own step.
-    allowed = {"adapters": ["__init__.py", "common.py", "greenhouse.py", "lever.py"]}
+    # Phase 3 added the Greenhouse, Lever, Ashby and JSON-LD adapters and their shared helpers;
+    # any other adapter still needs its own step.
+    allowed = {
+        "adapters": [
+            "__init__.py",
+            "ashby.py",
+            "common.py",
+            "greenhouse.py",
+            "json_ld.py",
+            "lever.py",
+        ],
+    }
     for package in ("adapters", "spiders", "detect", "middlewares", "export"):
         files = sorted(p.name for p in (PACKAGE / package).glob("*.py"))
         assert files == allowed.get(package, ["__init__.py"]), (
