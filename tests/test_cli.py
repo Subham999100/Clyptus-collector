@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
+from collector.adapters.common import Extraction
 from collector.adapters.greenhouse import extract_greenhouse_jobs
 from collector.cli import app
 from collector.settings import Settings, get_settings
@@ -149,6 +150,7 @@ def test_importing_modules_has_no_side_effects(tmp_path: Path) -> None:
 # --- `collector run` (Phase 4): the crawl itself is replaced by a stub; nothing is fetched ----
 
 SOURCES_HEADER = "platform,company_name,identifier,company_website\n"
+EMPTY_LISTING = Extraction((), (), "listing", 0)  # a recognized listing with no jobs
 
 
 @pytest.fixture
@@ -159,7 +161,7 @@ def crawl_calls(monkeypatch: pytest.MonkeyPatch) -> list[list[Source]]:
     def fake(sources: Any, **kwargs: Any) -> list[SourceResult]:
         configured = list(sources)
         calls.append(configured)
-        return [SourceResult(source, (), ()) for source in configured]
+        return [SourceResult(source, (EMPTY_LISTING,), ()) for source in configured]
 
     monkeypatch.setattr("collector.cli.crawl_sources", fake)
     return calls
@@ -197,7 +199,10 @@ def test_run_requires_the_sources_option(crawl_calls: list[list[Source]]) -> Non
 def test_run_rejects_an_unusable_sources_file_before_crawling(
     tmp_path: Path, crawl_calls: list[list[Source]], text: str, fragment: str
 ) -> None:
-    result = runner.invoke(app, ["run", "--sources", str(write_sources(tmp_path, text))])
+    result = runner.invoke(
+        app,
+        ["run", "--sources", str(write_sources(tmp_path, text)), "--db", str(tmp_path / "t.db")],
+    )
 
     assert result.exit_code == 2
     assert result.output.startswith("error:")
@@ -221,7 +226,7 @@ def test_run_passes_the_configured_sources_in_order_and_succeeds_when_clean(
         tmp_path, SOURCES_HEADER + "lever,Example Two,site-b,\ngreenhouse,Example One,board-a,\n"
     )
 
-    result = runner.invoke(app, ["run", "--sources", str(path)])
+    result = runner.invoke(app, ["run", "--sources", str(path), "--db", str(tmp_path / "t.db")])
 
     assert result.exit_code == 0
     assert crawl_calls == [
@@ -242,12 +247,12 @@ def test_run_reports_blocked_sources_and_exits_nonzero(
         "collector.cli.crawl_sources",
         lambda sources, **kwargs: [
             SourceResult(blocked, (), (failure,)),
-            SourceResult(good, (), ()),
+            SourceResult(good, (EMPTY_LISTING,), ()),
         ],
     )
     path = write_sources(tmp_path, SOURCES_HEADER + "greenhouse,Blocked Corp,blocked-board,\n")
 
-    result = runner.invoke(app, ["run", "--sources", str(path)])
+    result = runner.invoke(app, ["run", "--sources", str(path), "--db", str(tmp_path / "t.db")])
 
     assert result.exit_code == 1
     assert "greenhouse Blocked Corp" in result.output and "(BLOCKED)" in result.output
@@ -268,7 +273,7 @@ def test_run_exits_nonzero_for_a_plain_fetch_failure_without_calling_it_blocked(
     )
     path = write_sources(tmp_path, SOURCES_HEADER + "lever,Example Corp,site,\n")
 
-    result = runner.invoke(app, ["run", "--sources", str(path)])
+    result = runner.invoke(app, ["run", "--sources", str(path), "--db", str(tmp_path / "t.db")])
 
     assert result.exit_code == 1
     assert "fetch error: HTTP 503" in result.output
@@ -293,7 +298,7 @@ def test_run_output_reports_counts_not_job_content(
     )
     path = write_sources(tmp_path, SOURCES_HEADER + "greenhouse,Example Corp,example-board,\n")
 
-    result = runner.invoke(app, ["run", "--sources", str(path)])
+    result = runner.invoke(app, ["run", "--sources", str(path), "--db", str(tmp_path / "t.db")])
 
     assert result.exit_code == 0
     assert "greenhouse Example Corp: 1 records, 0 failures" in result.output

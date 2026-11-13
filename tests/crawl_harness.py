@@ -129,6 +129,17 @@ def main() -> None:
     run.scrapy_settings = scripted_settings  # type: ignore[assignment]
 
     sources = [Source(**fields) for fields in SCENARIO["sources"]]
+    if "db" in SCENARIO:  # crawl and store in a SQLite database (the whole Phase 4 pipeline)
+        import dataclasses
+        from datetime import datetime
+
+        from collector.pipelines.ingest import run_collection
+
+        now = datetime.fromisoformat(SCENARIO["now"])
+        summary = run_collection(SCENARIO["db"], sources, run.crawl_sources, now=now)
+        print("SUMMARY:" + json.dumps(dataclasses.asdict(summary)))
+        print("REQUESTS:" + json.dumps(REQUESTS))
+        return
     results = run.crawl_sources(sources)
     print(
         "RESULT:"
