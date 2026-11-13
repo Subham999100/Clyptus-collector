@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     concurrent_requests: int = 4
     request_timeout_seconds: int = 20
     retry_times: int = 2
+    download_delay_seconds: float = 1.0
     autothrottle_enabled: bool = True
     sqlite_path: Path = Path("data/collector.db")
     output_dir: Path = Path("output")
