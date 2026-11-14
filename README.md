@@ -1,3 +1,4 @@
+Crawler
 # Clyptus Collector
 
 Standalone tool that will collect publicly available job postings from company career sites,
