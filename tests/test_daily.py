@@ -221,7 +221,11 @@ def test_a_failed_source_gives_a_partial_workbook_and_closes_nothing(tmp_path: P
 def test_when_no_source_works_no_workbook_is_written(tmp_path: Path, reason: str) -> None:
     daily_run(tmp_path, ok(LEVER, job(1)))
     report = daily_run(tmp_path, failed(LEVER, reason), now=DAY_1 + timedelta(days=1))
-    assert (report.outcome, report.workbook, report.export_error) == (DailyOutcome.FAILED, None, None)
+    assert (report.outcome, report.workbook, report.export_error) == (
+        DailyOutcome.FAILED,
+        None,
+        None,
+    )
     assert sorted(p.name for p in (tmp_path / "out").iterdir()) == ["jobs_2026-11-17.xlsx"]
     assert query(tmp_path, "SELECT status FROM jobs") == [("OPEN",)]
 
@@ -408,6 +412,18 @@ def test_cli_run_takes_the_same_lock(tmp_path: Path, monkeypatch: pytest.MonkeyP
         busy = runner.invoke(app, args)
     assert busy.exit_code == 5 and calls == []
     assert runner.invoke(app, args).exit_code == 0 and calls == [2]  # free again: it runs
+
+
+def test_an_unexpected_export_error_is_still_an_export_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(*args: Any, **kwargs: Any) -> None:
+        raise MemoryError
+
+    monkeypatch.setattr(daily, "export_jobs", broken)
+    report = daily_run(tmp_path, ok(LEVER, job(1)))
+    assert report.export_error == "unexpected export error (MemoryError)"
+    assert report.ingest.status == "SUCCEEDED" and report.workbook is None
 
 
 def test_module_constants() -> None:

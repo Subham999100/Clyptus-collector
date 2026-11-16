@@ -166,7 +166,7 @@ def run_daily(
         try:
             try:
                 recovered = recover_interrupted_runs(conn, now=now)
-            except sqlite3.Error as exc:
+            except (sqlite3.Error, ValueError) as exc:  # ValueError: a run starts in the future
                 raise CollectionError(f"cannot recover runs: {type(exc).__name__}") from exc
         finally:
             conn.close()
@@ -197,6 +197,8 @@ def run_daily(
                 workbook = export_jobs(db_path, target, overwrite=replace, reference=now)
             except ExportError as exc:
                 export_error = str(exc)
+            except Exception as exc:  # noqa: BLE001 - reported as an export failure, never lost
+                export_error = f"unexpected export error ({type(exc).__name__})"
     return DailyReport(
         business_date=day,
         outcome=outcome,

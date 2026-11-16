@@ -19,11 +19,18 @@ ordinary server-rendered HTML. It is not a universal scraper: each such source n
 reviewed, explicitly approved selector configuration, and it is verified only against synthetic
 fixtures so far; see "Generic HTML" in the same document.
 
+Phase 9 added `collector daily`, the unattended daily run for cron or a systemd timer: one run
+per database at a time, recovery of interrupted runs, a dated workbook
+(`jobs_YYYY-MM-DD.xlsx`, business date Asia/Kolkata; partial runs are named as such), a stale-job
+review list (jobs are never closed automatically) and documented exit codes. See
+[docs/daily-operations.md](docs/daily-operations.md). Verified offline only.
+
 ## Usage
 
 ```bash
 collector run --sources sources.csv --db data/collector.db
 collector export --db data/collector.db --output output/jobs.xlsx   # add --overwrite to replace
+collector daily --sources approved_sources.csv --db data/collector.db --output-dir exports
 ```
 
 `sources.csv` has the header `platform,company_name,identifier,company_website`, where
