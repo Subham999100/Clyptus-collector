@@ -40,6 +40,7 @@ def _reply(request: Request, started: float) -> Response:
             "url": request.url,
             "user_agent": request.headers.get("User-Agent", b"").decode(),
             "timeout": request.meta.get("download_timeout"),
+            "proxy": request.meta.get("proxy"),
             "credentials": bool(request.meta.get("http_user")) or "@" in request.url,
             "start": started,
             "end": time.monotonic(),
@@ -102,6 +103,42 @@ class FakeHandler:
             return deferred.addBoth(done)
 
 
+CONNECTS: list[dict[str, Any]] = []  # TCP connections the real downloader tried to open
+LOOKUPS: list[str] = []  # hostnames sent to the (scripted) system resolver
+
+
+def _script_the_network(run: Any) -> None:
+    """Network mode: Scrapy's real HTTP/1.1 handler, real Twisted ``HostnameEndpoint`` and the
+    collector's real resolver, with only the two outermost edges replaced: the system DNS lookup
+    answers from the scenario (``network.lookups``: host -> one answer list per lookup, the last
+    one repeating) and every TCP connect is recorded and refused, so nothing leaves the process.
+    """
+    from twisted.internet import defer, error
+    from twisted.internet import endpoints as tx_endpoints
+
+    answers = {host: list(calls) for host, calls in SCENARIO["network"]["lookups"].items()}
+
+    def lookup(host: str) -> list[str]:
+        LOOKUPS.append(host)
+        if host not in answers:
+            raise OSError("no such host")  # a resolution failure
+        calls = answers[host]
+        return calls.pop(0) if len(calls) > 1 else calls[0]
+
+    run._system_lookup = lookup  # looked up at call time by PublicOnlyResolver._lookup
+    if SCENARIO["network"].get("stock_resolver"):  # Scrapy's resolver calls gethostbyname
+        import socket
+
+        socket.gethostbyname = lambda host: lookup(host)[0]  # type: ignore[assignment]
+
+    def refuse(self: Any, protocolFactory: Any) -> Any:
+        CONNECTS.append({"host": self._host, "port": self._port})
+        return defer.fail(error.ConnectionRefusedError())
+
+    tx_endpoints.TCP4ClientEndpoint.connect = refuse  # type: ignore[method-assign]
+    tx_endpoints.TCP6ClientEndpoint.connect = refuse  # type: ignore[method-assign]
+
+
 def main() -> None:
     SCENARIO.update(json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")))
 
@@ -122,11 +159,17 @@ def main() -> None:
 
     def scripted_settings(settings: Any = None) -> dict[str, object]:
         config = original(settings)
-        handler = "tests.crawl_harness.FakeHandler"
-        config["DOWNLOAD_HANDLERS"] = {"https": handler, "http": handler}
+        if "network" not in SCENARIO:  # network mode keeps Scrapy's real HTTP handler
+            handler = "tests.crawl_harness.FakeHandler"
+            config["DOWNLOAD_HANDLERS"] = {"https": handler, "http": handler}
+        elif SCENARIO["network"].get("stock_resolver"):  # control: Scrapy's own resolver
+            config.pop("DNS_RESOLVER", None)
+            config.pop("TWISTED_DNS_RESOLVER", None)
         return config
 
     run.scrapy_settings = scripted_settings  # type: ignore[assignment]
+    if "network" in SCENARIO:
+        _script_the_network(run)
 
     sources = [Source(**fields) for fields in SCENARIO["sources"]]
     if "db" in SCENARIO:  # crawl and store in a SQLite database (the whole Phase 4 pipeline)
@@ -162,6 +205,8 @@ def main() -> None:
                     for r in results
                 ],
                 "requests": REQUESTS,
+                "connects": CONNECTS,
+                "lookups": LOOKUPS,
                 "max_in_flight": IN_FLIGHT["max"],
             }
         )
