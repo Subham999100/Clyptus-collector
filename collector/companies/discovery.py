@@ -1,16 +1,24 @@
 """Discover one company's crawlable job source, with the evidence for it.
 
-Discovery never invents anything: the official website comes from the company list, a careers
-URL comes from the list or from a link on an official page, and a board identifier is read from
-a board URL (``collector.detect.platforms``). There is no search provider: a company with no
-supplied website cannot be identified and is reported ``NOT_FOUND``.
+Discovery never invents anything: the official website comes from the company list or, when
+missing, from an optional website directory (``collector.companies.directory``) whose entry must
+match the company's name *exactly*; a careers URL comes from the list or from a link on an
+official page; a board identifier is read from a board URL (``collector.detect.platforms``).
 
-Pages are read only through the ``fetch`` callable supplied by the caller. Without one
-(offline mode) nothing is fetched, so ownership cannot be confirmed and every candidate source
-is left ``REVIEW_REQUIRED``. With one, discovery fetches at most two pages per company, both on
-the official website's registered domain (the homepage, then one careers page), and checks:
+Discovery is written as steps (a generator) that yield each URL needed and receive the fetched
+``Page``, so the same logic runs with a plain callable (``discover``, used by tests) and inside
+the protected Scrapy crawl (``collector.spiders.pages``). A failed fetch is thrown into the
+steps as ``FetchError``; a redirect to another host is never followed by the protected fetcher
+and arrives as ``Redirected`` (its target is judged, not fetched).
 
-1. the homepage names the company (title, ``og:site_name`` or JSON-LD ``Organization``);
+Offline (``online=False``) nothing is fetched or looked up, so ownership cannot be confirmed and
+every candidate source is left ``REVIEW_REQUIRED``. Online, discovery makes at most one
+directory lookup plus two page fetches per company, both pages on the official website's
+registered domain (the homepage, then one careers page; a redirect within that domain, such as
+``example.com`` -> ``www.example.com``, is requested as its own fetch), and checks:
+
+1. the homepage names the company (title, ``og:site_name`` or JSON-LD ``Organization``), by the
+   listed name or by the official name of the exactly matching directory entry;
 2. a supported job board is linked (or redirected to) from those official pages, or the official
    careers page carries JSON-LD ``JobPosting`` markup the collector's adapter can read.
 
@@ -19,10 +27,11 @@ is not collection. Discovery never grants permission to collect; that is a separ
 decision recorded by ``collector.companies.registry``.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import Protocol
 
 from collector.adapters.common import public_url
 from collector.adapters.json_ld import extract_json_ld_jobs
@@ -35,6 +44,7 @@ from collector.detect.platforms import (
     read_page,
     same_site,
 )
+from collector.utils.urls import registered_domain
 
 
 class Status(StrEnum):
@@ -54,7 +64,32 @@ class FetchError(Exception):
     """A page could not be fetched. ``str(error)`` is a short reason without the URL."""
 
 
+class Redirected(FetchError):
+    """The page redirected to another host; ``target`` was not fetched."""
+
+    def __init__(self, target: str) -> None:
+        super().__init__("redirected to another host")
+        self.target = target
+
+
 Fetch = Callable[[str], Page]
+
+
+@dataclass(frozen=True)
+class Candidate:
+    """An official website named by a directory entry whose name matches the company exactly."""
+
+    website: str
+    names: tuple[str, ...]  # the entry's official names (its label and the matching alias)
+    reference: str  # e.g. "Wikidata Q123"
+
+
+class Directory(Protocol):
+    """A website directory: ``lookup`` yields the URL it needs and returns the candidates."""
+
+    name: str
+
+    def lookup(self, company: Company) -> Generator[str, Page, tuple[Candidate, ...]]: ...
 
 
 @dataclass(frozen=True)
@@ -77,11 +112,47 @@ def names_company(company_name: str, page_name: str) -> bool:
     return bool(wanted) and any(have[i : i + size] == wanted for i in range(len(have) - size + 1))
 
 
+Steps = Generator[str, Page, Discovery]
+
+
 def discover(
-    company: Company, fetch: Fetch | None = None, *, now: datetime | None = None
+    company: Company,
+    fetch: Fetch | None = None,
+    *,
+    directory: Directory | None = None,
+    now: datetime | None = None,
 ) -> Discovery:
-    """Discover the job source of one company (see the module docstring)."""
-    result = _discover(company, fetch, now or datetime.now(UTC))
+    """Discover the job source of one company with a synchronous ``fetch`` (``None``: offline)."""
+    steps = discovery_steps(company, online=fetch is not None, directory=directory, now=now)
+    return drive(steps, fetch)
+
+
+def drive(steps: Steps, fetch: Fetch | None) -> Discovery:
+    """Run discovery steps to the end, fetching each requested URL with ``fetch``."""
+    try:
+        url = next(steps)
+        while True:
+            if fetch is None:
+                raise RuntimeError("offline discovery asked for a page")
+            try:
+                page = fetch(url)
+            except FetchError as exc:
+                url = steps.throw(exc)
+            else:
+                url = steps.send(page)
+    except StopIteration as stop:
+        return stop.value
+
+
+def discovery_steps(
+    company: Company,
+    *,
+    online: bool,
+    directory: Directory | None = None,
+    now: datetime | None = None,
+) -> Steps:
+    """The discovery of one company as steps (see the module docstring)."""
+    result = yield from _discover(company, online, directory, now or datetime.now(UTC))
     concern = company.conflict or company.similar
     if concern and result.status == Status.VERIFIED:
         return _with(result, Status.REVIEW_REQUIRED, concern)
@@ -103,7 +174,20 @@ def _with(result: Discovery, status: Status, reason: str) -> Discovery:
     )
 
 
-def _discover(company: Company, fetch: Fetch | None, now: datetime) -> Discovery:
+def _get(url: str) -> Generator[str, Page, Page]:
+    """Fetch a page, following one redirect that stays on the same registered domain (requested
+    as a fetch of its own, so it passes every check again). Other redirects raise."""
+    try:
+        return (yield url)
+    except Redirected as hop:
+        if hop.target != url and same_site(hop.target, url) and _https(hop.target):
+            return (yield hop.target)
+        raise
+
+
+def _discover(
+    company: Company, online: bool, directory: Directory | None, now: datetime
+) -> Generator[str, Page, Discovery]:
     website = company.official_website
     careers = company.careers_url
     evidence: list[str] = []
@@ -134,11 +218,45 @@ def _discover(company: Company, fetch: Fetch | None, now: datetime) -> Discovery
         if problem is not None:
             status = Status.UNSUPPORTED if not supplied_board.supported else Status.REVIEW_REQUIRED
             return result(status, problem, supplied_board)
+    directory_names: tuple[str, ...] = ()
+    if website is None and directory is not None and online:
+        try:
+            candidates = yield from directory.lookup(company)
+        except FetchError as exc:
+            return result(
+                Status.REVIEW_REQUIRED,
+                f"website lookup ({directory.name}) failed ({exc})",
+                supplied_board,
+                failed=True,
+            )
+        if not candidates:
+            return result(
+                Status.NOT_FOUND,
+                f"website lookup ({directory.name}) found no entry with exactly this name and "
+                "an https official website",
+                supplied_board,
+            )
+        references = ", ".join(sorted({candidate.reference for candidate in candidates}))
+        domains = {registered_domain(candidate.website) for candidate in candidates}
+        if len(domains) > 1:
+            return result(
+                Status.REVIEW_REQUIRED,
+                f"website lookup ({directory.name}) found official websites on {len(domains)} "
+                f"different domains ({references})",
+                supplied_board,
+            )
+        website = min(candidates, key=lambda c: (len(c.website), c.website)).website
+        directory_names = tuple(dict.fromkeys(name for c in candidates for name in c.names))
+        evidence.append(
+            f"official website listed by {directory.name} ({references}) under exactly this name"
+        )
     if website is None:
         if careers is None:
             return result(
                 Status.NOT_FOUND,
-                "no official website supplied; automatic website search is not available",
+                "no official website supplied; automatic website search is not available"
+                if directory is None
+                else "no official website supplied; website lookup needs online mode",
             )
         return result(
             Status.REVIEW_REQUIRED,
@@ -150,7 +268,7 @@ def _discover(company: Company, fetch: Fetch | None, now: datetime) -> Discovery
     if careers and supplied_board is None and not same_site(careers, website):
         return result(Status.REVIEW_REQUIRED, "careers URL is not on the official website's domain")
 
-    if fetch is None:  # offline: record the candidate, confirm nothing
+    if not online:  # offline: record the candidate, confirm nothing
         if supplied_board is not None:
             return result(
                 Status.REVIEW_REQUIRED,
@@ -168,7 +286,13 @@ def _discover(company: Company, fetch: Fetch | None, now: datetime) -> Discovery
 
     # --- online: the official homepage first -------------------------------------------------
     try:
-        home = fetch(website)
+        home = yield from _get(website)
+    except Redirected:
+        return result(
+            Status.REVIEW_REQUIRED,
+            "official website redirected to a different domain",
+            supplied_board,
+        )
     except FetchError as exc:
         return result(
             Status.REVIEW_REQUIRED,
@@ -183,8 +307,14 @@ def _discover(company: Company, fetch: Fetch | None, now: datetime) -> Discovery
             supplied_board,
         )
     home_signals = read_page(home.html, home.url)
+    expected = (company.name, *directory_names)
     identity = next(
-        (name for name in home_signals.names if names_company(company.name, name)), None
+        (
+            name
+            for name in home_signals.names
+            if any(names_company(wanted, name) for wanted in expected)
+        ),
+        None,
     )
     if identity is not None:
         evidence.append("official website homepage names the company")
@@ -209,15 +339,25 @@ def _discover(company: Company, fetch: Fetch | None, now: datetime) -> Discovery
                 for link in home_signals.links
                 if is_careers_link(link)
                 and same_site(link.url, website)
+                and _https(link.url)
                 and detect_board(link.url) is None
             ),
             None,
         )
         if target is not None:
             evidence.append("careers page linked from the official homepage")
+    redirects: list[str] = []  # job-board URLs the careers page redirected to (not fetched)
     if target is not None:
         try:
-            careers_page = fetch(target)
+            careers_page = yield from _get(target)
+        except Redirected as hop:
+            if detect_board(hop.target) is None:
+                return result(
+                    Status.REVIEW_REQUIRED,
+                    "careers page redirected to a different domain",
+                    careers_url=target,
+                )
+            redirects.append(hop.target)
         except FetchError as exc:
             return result(
                 Status.REVIEW_REQUIRED,
@@ -225,19 +365,21 @@ def _discover(company: Company, fetch: Fetch | None, now: datetime) -> Discovery
                 careers_url=target,
                 failed=True,
             )
-        if not same_site(careers_page.url, website) and detect_board(careers_page.url) is None:
-            return result(
-                Status.REVIEW_REQUIRED,
-                "careers page redirected to a different domain",
-                careers_url=target,
-            )
-        careers_signals = read_page(careers_page.html, careers_page.url)
+        if careers_page is not None:
+            if not same_site(careers_page.url, website) and detect_board(careers_page.url) is None:
+                return result(
+                    Status.REVIEW_REQUIRED,
+                    "careers page redirected to a different domain",
+                    careers_url=target,
+                )
+            careers_signals = read_page(careers_page.html, careers_page.url)
 
     pages = [(home, home_signals)]
     if careers_page is not None and careers_signals is not None:
         pages.append((careers_page, careers_signals))
     supported: dict[tuple[str, str], str] = {}
     unsupported: list[str] = []
+    boards_seen = [(url, "redirect") for url in redirects]
     for page, signals in pages:
         candidates = [(page.url, "redirect")] if page is careers_page else []
         # On the homepage only careers links count (not, say, a partner's job in a news item);
@@ -247,14 +389,15 @@ def _discover(company: Company, fetch: Fetch | None, now: datetime) -> Discovery
             for link in signals.links
             if page is careers_page or is_careers_link(link)
         ]
-        for url, how in candidates:
-            board = detect_board(url)
-            if board is None:
-                continue
-            if board.supported and board.identifier:
-                supported.setdefault((board.platform, board.identifier), how)
-            elif not board.supported and board.platform not in unsupported:
-                unsupported.append(board.platform)
+        boards_seen += candidates
+    for url, how in boards_seen:
+        board = detect_board(url)
+        if board is None:
+            continue
+        if board.supported and board.identifier:
+            supported.setdefault((board.platform, board.identifier), how)
+        elif not board.supported and board.platform not in unsupported:
+            unsupported.append(board.platform)
 
     def finish(found: Discovery) -> Discovery:
         if identity_problem and found.status == Status.VERIFIED:
@@ -273,7 +416,7 @@ def _discover(company: Company, fetch: Fetch | None, now: datetime) -> Discovery
             )
         evidence.append(f"official website links the {supplied_board.platform} board")
         return finish(result(Status.VERIFIED, None, supplied_board))
-    careers_url = careers_page.url if careers_page is not None else None
+    careers_url = careers_page.url if careers_page is not None else (target if redirects else None)
     if len(supported) > 1:
         platforms = ", ".join(sorted({platform for platform, _ in supported}))
         return finish(

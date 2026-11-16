@@ -41,9 +41,20 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, TextIO
 
-from collector.companies.discovery import Discovery, Fetch, Status, discover
+from collector.companies.discovery import (
+    Directory,
+    Discovery,
+    Fetch,
+    Status,
+    Steps,
+    discover,
+    discovery_steps,
+)
 from collector.companies.input import Company, company_key
 from collector.spiders.sources import PLATFORMS, Source, check_source, load_sources
+
+# Runs (key, steps) jobs online and reports each result (or the exception) to the callback.
+Driver = Callable[[Sequence[tuple[str, Steps]], Callable[[str, Discovery | Exception], None]], None]
 
 FORMAT = "clyptus-collector-discovery"
 VERSION = 1
@@ -271,8 +282,14 @@ def run_batch(
     retry_failed: bool = False,
     dry_run: bool = False,
     save_interval: float = 2.0,
+    directory: Directory | None = None,
+    driver: Driver | None = None,
 ) -> BatchResult:
     """Discover the next ``batch_size`` due companies, in list order.
+
+    Pages come from ``driver`` when given (it runs every company's discovery steps online, e.g.
+    ``collector.spiders.pages.crawl_discovery``), else from the synchronous ``fetch`` (``None``:
+    offline). ``directory`` looks up websites for companies listed without one (online only).
 
     Progress is saved whenever ``save_interval`` seconds have passed since the last save (with
     page fetching, that is after nearly every company), when the batch ends, and when it is
@@ -297,38 +314,58 @@ def run_batch(
             retry_failed=retry_failed,
         )
     ]
-    processed: list[tuple[Company, dict[str, Any]]] = []
+    batch = due[:batch_size]
+    by_key = {company.key: company for company in batch}
+    results: dict[str, dict[str, Any]] = {}
     kept = 0
     unsaved = 0
     last_save = time.monotonic()
+
+    def record(key: str, outcome: Discovery | Exception) -> None:
+        nonlocal kept, unsaved, last_save
+        company = by_key[key]
+        found = outcome
+        if not isinstance(found, Discovery):  # one company's failure must not stop the batch
+            found = Discovery(
+                Status.REVIEW_REQUIRED,
+                company.official_website,
+                company.careers_url,
+                None,
+                None,
+                (),
+                f"discovery failed ({type(outcome).__name__})",
+                failed=True,
+            )
+        stored, was_kept = _merge(state.companies.get(key), company, found, now)
+        kept += was_kept
+        state.companies[key] = results[key] = stored
+        unsaved += 1
+        if not dry_run and time.monotonic() - last_save >= save_interval:
+            save_state(state_path, state)
+            unsaved, last_save = 0, time.monotonic()
+
     try:
-        for company in due[:batch_size]:
-            try:
-                found = discover(company, fetch, now=now)
-            except Exception as exc:  # noqa: BLE001 - one company must not stop the batch
-                found = Discovery(
-                    Status.REVIEW_REQUIRED,
-                    company.official_website,
-                    company.careers_url,
-                    None,
-                    None,
-                    (),
-                    f"discovery failed ({type(exc).__name__})",
-                    failed=True,
-                )
-            record, was_kept = _merge(state.companies.get(company.key), company, found, now)
-            kept += was_kept
-            state.companies[company.key] = record
-            processed.append((company, record))
-            unsaved += 1
-            if not dry_run and time.monotonic() - last_save >= save_interval:
-                save_state(state_path, state)
-                unsaved, last_save = 0, time.monotonic()
+        if driver is not None:  # e.g. the protected Scrapy crawl
+            online = [
+                (c.key, discovery_steps(c, online=True, directory=directory, now=now))
+                for c in batch
+            ]
+            driver(online, record)
+        else:
+            for company in batch:
+                try:
+                    outcome: Discovery | Exception = discover(
+                        company, fetch, directory=directory, now=now
+                    )
+                except Exception as exc:  # noqa: BLE001 - recorded for this company
+                    outcome = exc
+                record(company.key, outcome)
     finally:
         # Also on an interruption (Ctrl+C, an error): keep every company finished so far.
         if not dry_run and unsaved:
             save_state(state_path, state)
-    return BatchResult(tuple(processed), kept, len(due) - len(processed), state)
+    processed = tuple((c, results[c.key]) for c in batch if c.key in results)
+    return BatchResult(processed, kept, len(due) - len(processed), state)
 
 
 def _merge(

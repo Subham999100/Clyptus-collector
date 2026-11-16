@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     sqlite_path: Path = Path("data/collector.db")
     output_dir: Path = Path("output")
     discovery_state_path: Path = Path("data/discovery.json")  # source-discovery results
+    discovery_provider: Literal["none", "wikidata"] = "none"  # website lookup for name-only rows
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 
     @field_validator("timezone")

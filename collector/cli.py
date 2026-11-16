@@ -10,10 +10,12 @@ from typing import Annotated, NoReturn
 import typer
 
 from collector.companies import registry
+from collector.companies.directory import get_directory
 from collector.companies.input import CompanyList, load_companies
 from collector.export.excel import ExportError, export_jobs
 from collector.pipelines.ingest import CollectionError, run_collection
 from collector.settings import get_settings
+from collector.spiders.pages import crawl_discovery
 from collector.spiders.run import SourceResult, crawl_sources
 from collector.spiders.sources import Source, load_sources
 
@@ -268,20 +270,60 @@ def discover(
     dry_run: Annotated[
         bool, typer.Option("--dry-run", help="Show the results without saving them.")
     ] = False,
+    online: Annotated[
+        bool,
+        typer.Option(
+            "--online",
+            help="Fetch official pages (and run the website lookup) through the protected "
+            "crawler. Use only for companies you are authorized to contact.",
+        ),
+    ] = False,
+    provider: Annotated[
+        str | None,
+        typer.Option(
+            "--provider",
+            help="Website lookup for companies listed without a website: none or wikidata. "
+            "Default: COLLECTOR_DISCOVERY_PROVIDER, else none. Used only with --online.",
+        ),
+    ] = None,
 ) -> None:
     """Discover job sources for the next batch of listed companies, in file order.
 
-    Offline: no page is fetched and no search provider is used. Supplied careers URLs are
+    Offline (the default): no page is fetched and no lookup is made. Supplied careers URLs are
     classified (Greenhouse, Lever, Ashby, JSON-LD candidate or unsupported) and kept as
-    REVIEW_REQUIRED candidates; companies without enough input are NOT_FOUND. Results are saved
-    after each company, so an interrupted run resumes where it stopped. Nothing is crawled and
-    no collection is authorized.
+    REVIEW_REQUIRED candidates; companies without enough input are NOT_FOUND.
+
+    With --online: official websites (from the list, or from an exact-name directory match) and
+    one careers page per company are fetched through the protected Scrapy crawler (robots.txt,
+    HTTPS, public addresses, TLS, delay); job boards are never fetched. Sources confirmed on the
+    official site become VERIFIED; everything else stays for review.
+
+    Results are saved while the batch runs, so an interrupted run resumes where it stopped.
+    Nothing is collected and no collection is ever authorized here.
 
     Exit codes: 0 when the batch was processed, 1 when it was processed but input rows were
-    rejected, 2 for an unusable companies file, 3 for an unusable state file.
+    rejected, 2 for an unusable companies file or option, 3 for an unusable state file.
     """
     listed = _companies(companies)
     path = _state_path(state)
+    name = provider if provider is not None else get_settings().discovery_provider
+    try:
+        directory = get_directory(name.strip().lower())
+    except ValueError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    if online:
+        lookup = f"website lookup: {directory.name}" if directory else "no website lookup"
+        typer.echo(
+            "MODE: online (protected crawler: robots.txt, HTTPS, public addresses, TLS; "
+            f"{lookup}; job boards are not fetched)"
+            + ("; DRY RUN, nothing saved" if dry_run else "")
+        )
+    else:
+        typer.echo(
+            "MODE: offline (no pages fetched, no website search); candidate sources stay "
+            "REVIEW_REQUIRED until reviewed" + ("; DRY RUN, nothing saved" if dry_run else "")
+        )
     try:
         result = registry.run_batch(
             listed.companies,
@@ -290,14 +332,12 @@ def discover(
             recheck_after=None if recheck_after_days is None else timedelta(recheck_after_days),
             retry_failed=retry_failed,
             dry_run=dry_run,
+            directory=directory,
+            driver=crawl_discovery if online else None,
         )
     except registry.StateError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=3) from exc
-    typer.echo(
-        "MODE: offline (no pages fetched, no website search); candidate sources stay "
-        "REVIEW_REQUIRED until reviewed" + ("; DRY RUN, nothing saved" if dry_run else "")
-    )
     if not result.processed:
         typer.echo("No companies are due for discovery (see --recheck-after-days, --retry-failed).")
     for company, record in result.processed:

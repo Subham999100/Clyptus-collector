@@ -40,13 +40,29 @@ collector sources status --companies companies.csv
 name is required. Invalid rows are reported and skipped, exact repeats are skipped, and similar
 or conflicting entries are never merged but left for review.
 
-`discover` is offline: it fetches no pages and has no website search. It classifies supplied
-careers URLs by their documented shapes (Greenhouse, Lever and Ashby boards, a same-site
+By default `discover` is offline: it fetches no pages and looks nothing up. It classifies
+supplied careers URLs by their documented shapes (Greenhouse, Lever and Ashby boards, a same-site
 JSON-LD candidate page, or an unsupported ATS such as Workday or Keka) and reads identifiers only
 from those URLs. Ownership is not confirmed offline, so candidates stay `REVIEW_REQUIRED` until
-a reviewer confirms them with `sources verify`. A company with no supplied website is
-`NOT_FOUND`. The discovery logic can confirm ownership from fetched official pages, but no live
-page fetcher is wired in yet.
+a reviewer confirms them with `sources verify`; a company with no website is `NOT_FOUND`.
+
+`discover --online` (only for companies you are authorized to contact) fetches pages through the
+same protected Scrapy crawler as `run`: robots.txt, HTTPS only, exact-host requests,
+connection-time public-address checks, verified TLS, the download delay, and blocking on
+HTTP 403/429 and challenge pages. Per company it fetches the official homepage and at most one
+careers page on the same registered domain. It never fetches job boards: a board is recognized
+from a link or redirect on the official pages. A redirect to another host is judged but never
+followed, except a same-domain hop such as `example.com` to `www.example.com`, which is
+requested separately with all checks. A source becomes `VERIFIED` only when the homepage names
+the company and an official page links (or redirects) to one supported board or carries
+readable JSON-LD `JobPosting` markup.
+
+For companies listed without a website, `--provider wikidata` (or
+`COLLECTOR_DISCOVERY_PROVIDER=wikidata`) looks up Wikidata's "official website" (P856) on the
+public query service, which is free and needs no key. An entry counts only when its English label
+or alias equals the company name exactly (normalized), so an acronym matches only when Wikidata
+lists it as an alias. Entries on different domains go to review. The default provider is
+`none`.
 
 Collection authorization is separate: every company is `PENDING` until someone records an
 explicit `APPROVED` (only for a `VERIFIED` source, and only for that source) or `RESTRICTED`

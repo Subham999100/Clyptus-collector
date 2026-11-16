@@ -328,7 +328,8 @@ def test_no_extraction_code_or_schema_change_was_added() -> None:
             "json_ld.py",
             "lever.py",
         ],
-        "spiders": ["__init__.py", "platforms.py", "run.py", "sources.py"],
+        # Phase 6B: pages.py fetches discovery pages through the same protected spider base.
+        "spiders": ["__init__.py", "pages.py", "platforms.py", "run.py", "sources.py"],
         "export": ["__init__.py", "excel.py"],  # Phase 5: Excel export
         "detect": ["__init__.py", "platforms.py"],  # Phase 6: URL/page platform detection
     }

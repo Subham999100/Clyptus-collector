@@ -139,6 +139,47 @@ def _script_the_network(run: Any) -> None:
     tx_endpoints.TCP6ClientEndpoint.connect = refuse  # type: ignore[method-assign]
 
 
+def _discover(scripted_settings: Any) -> None:
+    """Discovery mode: ``discovery.companies`` (company-list CSV text) run through
+    ``registry.run_batch`` with the real ``crawl_discovery`` driver. ``discovery.wikidata`` maps
+    a company name to its scripted SPARQL result (keyed here by the URL the spider requests)."""
+    import scrapy
+
+    from collector.adapters.common import public_url
+    from collector.companies import registry
+    from collector.companies.directory import WikidataDirectory
+    from collector.companies.input import load_companies
+    from collector.spiders import pages
+
+    pages.scrapy_settings = scripted_settings  # type: ignore[assignment]
+    config = SCENARIO["discovery"]
+    directory = WikidataDirectory() if config.get("wikidata") is not None else None
+    for name, result in (config.get("wikidata") or {}).items():
+        url = scrapy.Request(public_url(WikidataDirectory().query_url(name))).url
+        SCENARIO["responses"][url] = {"body": json.dumps(result)}
+    folder = Path(config["folder"])
+    companies_csv = folder / "companies.csv"
+    companies_csv.write_text(config["companies"], encoding="utf-8")
+    state = folder / "state.json"
+    result = registry.run_batch(
+        load_companies(companies_csv).companies,
+        state,
+        batch_size=config.get("batch_size", 10),
+        directory=directory,
+        driver=pages.crawl_discovery,
+    )
+    print(
+        "RESULT:"
+        + json.dumps(
+            {
+                "records": {company.name: record for company, record in result.processed},
+                "authorizations": registry.load_state(state).authorizations,
+                "requests": [r["url"] for r in REQUESTS],
+            }
+        )
+    )
+
+
 def main() -> None:
     SCENARIO.update(json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")))
 
@@ -170,6 +211,9 @@ def main() -> None:
     run.scrapy_settings = scripted_settings  # type: ignore[assignment]
     if "network" in SCENARIO:
         _script_the_network(run)
+    if "discovery" in SCENARIO:  # Phase 6B: company discovery through the protected crawler
+        _discover(scripted_settings)
+        return
 
     sources = [Source(**fields) for fields in SCENARIO["sources"]]
     if "db" in SCENARIO:  # crawl and store in a SQLite database (the whole Phase 4 pipeline)
