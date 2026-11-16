@@ -573,25 +573,105 @@ signal, with authorized OAuth credentials. A Zoho-hosted career page that carrie
 `JobPosting` JSON-LD can already be configured as a `jsonld` source after review; that needs no
 new code.
 
-### Generic HTML
+### Generic HTML (Phase 8, platform `html`)
 
-There is no standard to map from, so these fixtures only capture structural variation; they do
-not define a mapping. Relative links must be resolved against the page URL; relative text dates
-("Posted 3 days ago") go through `parse_posted_date` with `posted_date_source="page_text"`.
-`company_name` normally comes from config rather than the page.
+There is no standard to map from, so nothing is mapped generically: every `html` source has its
+own **reviewed selector configuration** that says where *that* site keeps each value
+([`collector/adapters/html.py`](../collector/adapters/html.py), spider `HtmlSpider` in
+[`collector/spiders/platforms.py`](../collector/spiders/platforms.py)). Selectors are CSS in
+Scrapy/parsel syntax; `::attr(name)` reads an attribute. Markup is first normalized by the
+HTML5 parser (selectolax), so malformed pages get the structure a browser shows.
 
-Fixtures (all synthetic):
+| Config key | Where | `JobRecord` field | Rule |
+| --- | --- | --- | --- |
+| `listing` (required) | page | — | container of the job cards; missing = unusable page, never an empty listing |
+| `job` (required) | inside `listing` | — | one job card; card position is used only in reports |
+| `title` (required) | card | `title` | text of the first match; blank or over 300 characters = failure |
+| `url` (required) | card | `apply_url` | `href` of the first match, resolved against the page URL; must be `https` on the listing URL's host and port and under `path_prefix` |
+| `external_id` | card | `external_id` | text or attribute; when configured it is required on every card (no per-card fallback to the URL) |
+| `location` | card / detail | `location` | every match, case-insensitive duplicates removed, joined with `"; "` |
+| `posted_date` | card / detail | `posted_date` (`page_text`) | first match through `parse_posted_date`; unreadable = unknown + warning; never the crawl date |
+| `employment_type` | card / detail | `employment_type` | verbatim (max 100 characters) |
+| `work_type` | card / detail | `work_type` | only the exact texts remote / hybrid / onsite / on-site / on site; anything else = unknown + warning |
+| `description` | card / detail | `description_snippet` | `html_to_text` + 500-character snippet; scripts and styles dropped |
+| `no_jobs` | page | — | marker that makes a page without `listing` a recognized empty listing |
+| `next_page`, `max_pages` | page | — | next listing page, at most `max_pages` (default 3, hard limit 10) |
+| `path_prefix` | — | — | job and next-page links must stay under it (default `/`) |
+| `detail` | — | — | selectors for the optional fields on each job's own page; only then are job pages fetched |
+
+`company_name` and `company_website` always come from the source configuration; `source_url`
+is the page the job was read from (the listing page, or the job's own page with `detail`).
+Salary and every field without a configured selector stay `None`. Identity follows the
+existing rule: `external_id` when configured, otherwise the normalized job URL (tracking
+parameters and fragments removed), so the same card in another position or on another day is
+the same job.
+
+**Listing → detail.** Without `detail`, each card becomes a record directly (no extra request).
+With `detail`, each accepted card is fetched once on its own page; a detail value wins over the
+card's. A job page answering HTTP 404/410, or one that has none of the configured detail fields
+(a "job no longer available" page), fails that job only; other HTTP errors, robots.txt denials,
+blocks and transport errors are fetch failures of the source, exactly as for other platforms.
+
+**Pagination.** The next-page link is followed only when it is a real `https` link on the same
+host and under `path_prefix`, has not been fetched in this run, and the page limit is not
+reached; otherwise a `next_page` warning says why later pages were not collected. A next link
+to the current page ends pagination quietly; `href="#"`, `javascript:` and buttons are reported
+as JavaScript pagination (unsupported). A job link already found earlier in the run is skipped
+(`SkippedJob`), never requested or stored twice.
+
+**Configuration and approval.** An `html` source is a row in the sources CSV with the listing
+page URL as `identifier` and the path of its JSON configuration in the optional `html_config`
+column (relative to the CSV). The JSON holds the selectors and a `review` block:
+
+```json
+{
+  "listing": "ul.jobs", "job": "li.job", "title": "a.job-link", "url": "a.job-link",
+  "location": ".job-location", "posted_date": ".posted", "path_prefix": "/careers/",
+  "review": {
+    "verified_by": "Reviewer name",
+    "ownership_evidence": "careers page linked from the official homepage",
+    "authorization": "APPROVED",
+    "authorized_by": "Owner name",
+    "note": "basis for the approval"
+  }
+}
+```
+
+Unknown keys, invalid selectors, a missing review and any decision other than `APPROVED` are
+refused when the sources file is loaded, before any request. An `html` source may not point at a
+board the collector recognizes: Greenhouse, Lever and Ashby boards must use their own platform,
+and Keka, Darwinbox, Zoho Recruit, Workday and the other ATS hosts in
+`collector/detect/platforms.py` are refused (generic HTML is no way around their access
+requirements). Discovery never produces a runnable `html` source: a careers page without a
+supported board or JSON-LD stays `UNSUPPORTED` (`platform="custom"`, noted as a possible
+generic HTML source), and `sources export` never exports `html`. A page with valid JSON-LD
+`JobPosting` markup should be configured as `jsonld` instead.
+
+Fixtures (all synthetic): structural variations
 [listing_unordered_list](../tests/fixtures/generic/listing_unordered_list.html) (3 jobs),
 [listing_cards](../tests/fixtures/generic/listing_cards.html) (2),
 [listing_empty](../tests/fixtures/generic/listing_empty.html) (0),
 [listing_js_rendered_shell](../tests/fixtures/generic/listing_js_rendered_shell.html) (0 in the HTML; needs JavaScript),
 [detail_microdata](../tests/fixtures/generic/detail_microdata.html) (1),
-[detail_plain_html](../tests/fixtures/generic/detail_plain_html.html) (1).
+[detail_plain_html](../tests/fixtures/generic/detail_plain_html.html) (1); and, for Phase 8,
+[listing_single_job](../tests/fixtures/generic/listing_single_job.html),
+[listing_page_1](../tests/fixtures/generic/listing_page_1.html) /
+[listing_page_2](../tests/fixtures/generic/listing_page_2.html),
+[detail_page_101](../tests/fixtures/generic/detail_page_101.html),
+[listing_missing_optional_fields](../tests/fixtures/generic/listing_missing_optional_fields.html),
+[listing_missing_required_fields](../tests/fixtures/generic/listing_missing_required_fields.html),
+[listing_malformed](../tests/fixtures/generic/listing_malformed.html),
+[listing_duplicate_links](../tests/fixtures/generic/listing_duplicate_links.html),
+[listing_invalid_urls](../tests/fixtures/generic/listing_invalid_urls.html),
+[listing_unknown_date](../tests/fixtures/generic/listing_unknown_date.html),
+[listing_invalid_date](../tests/fixtures/generic/listing_invalid_date.html),
+[listing_broken_pagination](../tests/fixtures/generic/listing_broken_pagination.html),
+[listing_cross_domain](../tests/fixtures/generic/listing_cross_domain.html).
 
 ## Fixture inventory
 
-48 fixtures, **0 captured, 48 synthetic**: Greenhouse 9, Lever 8, Ashby 9, JSON-LD 8, generic 6,
-Keka 8 (status code `1` is a synthetic "published" code).
+61 fixtures, **0 captured, 61 synthetic**: Greenhouse 9, Lever 8, Ashby 9, JSON-LD 8,
+generic 19, Keka 8 (status code `1` is a synthetic "published" code).
 
 ## Unmapped source data
 
@@ -622,3 +702,6 @@ change is approved.
    undocumented; validate with an authorized account before enabling an integration).
 10. The adapters' own assumptions (listed per adapter in their sections above), including JSON-LD
    `url`/`identifier` semantics on real pages.
+11. Generic HTML: every `html` source's selectors, date texts and job-URL stability (no
+   session parameters in links) must be checked on the real site by its reviewer; the synthetic
+   fixtures prove the mechanics only, not any site's layout.

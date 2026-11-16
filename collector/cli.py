@@ -39,7 +39,8 @@ def run(
         Path,
         typer.Option(
             "--sources",
-            help="CSV of configured sources: platform,company_name,identifier,company_website.",
+            help="CSV of configured sources: platform,company_name,identifier,company_website "
+            "(and html_config for html sources).",
         ),
     ],
     db: Annotated[

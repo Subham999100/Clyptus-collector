@@ -215,7 +215,14 @@ def main() -> None:
         _discover(scripted_settings)
         return
 
-    sources = [Source(**fields) for fields in SCENARIO["sources"]]
+    from collector.adapters.html import parse_html_config
+
+    sources = [
+        Source(**{**fields, "html": parse_html_config(fields["html"])})
+        if "html" in fields
+        else Source(**fields)
+        for fields in SCENARIO["sources"]
+    ]
     if "db" in SCENARIO:  # crawl and store in a SQLite database (the whole Phase 4 pipeline)
         import dataclasses
         from datetime import datetime
@@ -240,6 +247,9 @@ def main() -> None:
                             f.kind.value for e in r.extractions for f in e.failures
                         ],
                         "extractions": len(r.extractions),
+                        "titles": [record.title for record in r.records],
+                        "skipped": [s.reason for e in r.extractions for s in e.skipped],
+                        "warnings": [w.message for e in r.extractions for w in e.warnings],
                         "fetch_failures": [
                             {"url": f.url, "reason": f.reason, "blocked": f.blocked}
                             for f in r.fetch_failures

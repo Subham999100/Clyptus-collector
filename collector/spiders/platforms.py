@@ -6,7 +6,10 @@ logic is duplicated here.
 
 Each spider issues **one listing request** for its configured source and follows nothing: no
 link discovery, no pagination, no JavaScript, no browser. ``allowed_domains`` is pinned to the
-source's host, so Scrapy's built-in offsite filtering also stops redirects that leave it.
+source's host, so Scrapy's built-in offsite filtering also stops redirects that leave it. The one
+exception is ``HtmlSpider`` (Phase 8, a reviewed generic HTML source), which may also request
+the job pages and next listing pages its selector configuration points to, on the same host
+only and within fixed bounds; see its docstring.
 
 Results are collected on the spider instance, using the existing result structures:
 
@@ -37,15 +40,25 @@ from twisted.python.failure import Failure
 from collector.adapters.ashby import extract_ashby_jobs
 from collector.adapters.common import Extraction, rejected_response
 from collector.adapters.greenhouse import extract_greenhouse_jobs
+from collector.adapters.html import (
+    MAX_PAGES,
+    PendingJob,
+    detail_unavailable,
+    extract_html_detail,
+    extract_html_listing,
+)
 from collector.adapters.json_ld import extract_json_ld_jobs
 from collector.adapters.lever import extract_lever_jobs
+from collector.settings import get_settings
 from collector.spiders.sources import Source
+from collector.utils.urls import normalize_url
 
 __all__ = [
     "SPIDERS",
     "AshbySpider",
     "FetchFailure",
     "GreenhouseSpider",
+    "HtmlSpider",
     "JsonLdSpider",
     "LeverSpider",
 ]
@@ -304,6 +317,124 @@ class JsonLdSpider(_SourceSpider):
         )
 
 
+class HtmlSpider(_SourceSpider):
+    """A reviewed generic HTML source (``collector.adapters.html``).
+
+    Requests the configured listing page, then only what its selector configuration points to:
+    each job's detail page (only when ``detail`` selectors are configured) and the next listing
+    page (only with ``next_page``, at most ``max_pages`` pages). The adapter accepts a link only
+    when it is HTTPS on exactly the source's host and port and under ``path_prefix``; every
+    request still passes ``SourceOnlyMiddleware``, the public-address resolver, robots.txt, TLS
+    verification and the download delay, exactly as for the other spiders. No job page and no
+    listing page is requested twice in a run; a repeated job link is reported as skipped.
+
+    A detail page answering HTTP 404 or 410 fails only its job (the job is gone); other HTTP
+    errors, blocks and transport failures are fetch failures, as for every source. A listing or
+    detail page that produced nothing usable and looks like a challenge page is blocked.
+    """
+
+    name = "html"
+    platform = "html"
+    # The listing page is depth 0, page n is depth n - 1 and its job pages depth n.
+    custom_settings: ClassVar[dict[str, Any]] = {"DEPTH_LIMIT": MAX_PAGES}
+
+    def __init__(self, source: Source, collected_at: datetime | None = None, **kwargs: Any) -> None:
+        super().__init__(source, collected_at, **kwargs)
+        if source.html is None:
+            raise ValueError("an html source needs its selector configuration")
+        self.config = source.html
+        self._timezone = get_settings().tz  # relative posting dates use the business timezone
+        self._visited: list[str] = []  # normalized listing pages fetched so far
+        self._seen_jobs: set[str] = set()  # normalized job URLs found so far
+
+    def listing_url(self) -> str:
+        return self.source.identifier
+
+    def start_requests(self) -> Iterator[scrapy.Request]:
+        yield self._request(self.listing_url(), page=1)
+
+    def _request(self, url: str, *, page: int = 0, job: PendingJob | None = None) -> scrapy.Request:
+        meta: dict[str, Any] = {"html_job": job} if job is not None else {"html_page": page}
+        return scrapy.Request(url, callback=self.parse, errback=self.on_error, meta=meta)
+
+    def parse(self, response: Response) -> Iterator[scrapy.Request]:  # type: ignore[override]
+        if urlsplit(str(response.url)).scheme != "https":
+            self.fetch_failures.append(
+                FetchFailure(_safe_url(response.url), "response from a non-HTTPS URL")
+            )
+            return
+        if _is_challenge_header(response):
+            self._record_block(response.url, "access challenge page")
+            return
+        meta = response.request.meta if response.request is not None else {}
+        job = meta.get("html_job")
+        if job is not None:
+            self._parse_detail(response, job)
+            return
+        yield from self._parse_listing(response, int(meta.get("html_page", 1)))
+
+    def _common(self) -> dict[str, Any]:
+        return {
+            "config": self.config,
+            "listing_url": self.listing_url(),
+            "company_name": self.source.company_name,
+            "collected_at": self.collected_at().astimezone(self._timezone),
+            "company_website": self.source.company_website,
+        }
+
+    def _parse_listing(self, response: Response, page_number: int) -> Iterator[scrapy.Request]:
+        self._visited.append(normalize_url(str(response.url)))
+        if response.request is not None:
+            self._visited.append(normalize_url(response.request.url))
+        text = self.body_text(response)
+        try:
+            page = extract_html_listing(
+                text,
+                page_url=response.url,
+                page_number=page_number,
+                visited_pages=tuple(self._visited),
+                seen_jobs=frozenset(self._seen_jobs),
+                **self._common(),
+            )
+        except Exception as exc:  # noqa: BLE001 - one bad page must not end the crawl
+            self.extractions.append(rejected_response(f"extraction error: {type(exc).__name__}"))
+            return
+        extraction = page.extraction
+        empty = extraction.response_type is None or not (extraction.job_count or page.pending)
+        if empty and not extraction.records and self.looks_like_challenge(response):
+            self._record_block(response.url, "access challenge page")
+            return
+        self.extractions.append(extraction)
+        self._seen_jobs.update(page.job_urls)
+        for job in page.pending:
+            yield self._request(job.url, job=job)
+        if page.next_page is not None:
+            yield self._request(page.next_page, page=page_number + 1)
+
+    def _parse_detail(self, response: Response, job: PendingJob) -> None:
+        try:
+            extraction = extract_html_detail(
+                self.body_text(response), job=job, page_url=response.url, **self._common()
+            )
+        except Exception as exc:  # noqa: BLE001 - one bad page must not end the crawl
+            extraction = detail_unavailable(job, f"extraction error: {type(exc).__name__}")
+        if not extraction.records and self.looks_like_challenge(response):
+            self._record_block(response.url, "access challenge page")
+            return
+        self.extractions.append(extraction)
+
+    def on_error(self, failure: Failure) -> None:
+        if failure.check(HttpError):
+            response = failure.value.response
+            request = response.request
+            job = request.meta.get("html_job") if request is not None else None
+            if job is not None and response.status in (404, 410):
+                self.extractions.append(detail_unavailable(job, f"HTTP {response.status}"))
+                return
+        super().on_error(failure)
+
+
 SPIDERS: dict[str, type[_SourceSpider]] = {
-    spider.platform: spider for spider in (GreenhouseSpider, LeverSpider, AshbySpider, JsonLdSpider)
+    spider.platform: spider
+    for spider in (GreenhouseSpider, LeverSpider, AshbySpider, JsonLdSpider, HtmlSpider)
 }

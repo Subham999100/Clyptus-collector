@@ -475,7 +475,8 @@ def _discover(
         return finish(
             result(
                 Status.UNSUPPORTED,
-                "careers page has no supported job board and no readable JSON-LD JobPosting",
+                "careers page has no supported job board and no readable JSON-LD JobPosting "
+                "(a possible generic HTML source: needs a reviewed selector configuration)",
                 careers_url=careers_url,
                 platform="custom",
             )

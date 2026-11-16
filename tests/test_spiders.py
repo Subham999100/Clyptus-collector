@@ -27,6 +27,7 @@ from collector.spiders.platforms import (
     SPIDERS,
     AshbySpider,
     GreenhouseSpider,
+    HtmlSpider,
     JsonLdSpider,
     LeverSpider,
 )
@@ -36,7 +37,7 @@ from collector.spiders.run import (
     UnsafeDestination,
     scrapy_settings,
 )
-from collector.spiders.sources import PLATFORMS, Source
+from collector.spiders.sources import PLATFORMS, SOURCE_PLATFORMS, Source
 
 FIXTURES = Path(__file__).parent / "fixtures"
 COLLECTED_AT = datetime(2026, 10, 20, 12, 0, tzinfo=UTC)
@@ -113,11 +114,13 @@ def http_error(spider: Any, status: int, **kwargs: Any) -> Failure:
 
 
 def test_spiders_cover_exactly_the_supported_platforms() -> None:
-    assert set(SPIDERS) == set(PLATFORMS)
+    # Phase 8 adds "html" (generic HTML, hand-configured only; see tests/test_html_sources.py).
+    assert set(SPIDERS) == set(SOURCE_PLATFORMS) == {*PLATFORMS, "html"}
     assert SPIDERS["greenhouse"] is GreenhouseSpider
     assert SPIDERS["lever"] is LeverSpider
     assert SPIDERS["ashby"] is AshbySpider
     assert SPIDERS["jsonld"] is JsonLdSpider
+    assert SPIDERS["html"] is HtmlSpider
     for platform, spider_class in SPIDERS.items():
         assert spider_class.platform == platform
 

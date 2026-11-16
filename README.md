@@ -13,6 +13,11 @@ Darwinbox and Zoho Recruit stay unsupported for crawling, because their job APIs
 credentials; Darwinbox and Zoho Recruit adapters are blocked on undocumented schemas. See
 "Phase 7 providers" in [docs/platform-field-mapping.md](docs/platform-field-mapping.md).
 
+Phase 8 added generic HTML extraction (platform `html`) for career sites that list jobs in
+ordinary server-rendered HTML. It is not a universal scraper: each such source needs its own
+reviewed, explicitly approved selector configuration, and it is verified only against synthetic
+fixtures so far; see "Generic HTML" in the same document.
+
 ## Usage
 
 ```bash
@@ -21,9 +26,20 @@ collector export --db data/collector.db --output output/jobs.xlsx   # add --over
 ```
 
 `sources.csv` has the header `platform,company_name,identifier,company_website`, where
-`platform` is `greenhouse`, `lever`, `ashby` or `jsonld`. `identifier` is the board token, site
-slug or board name, or for `jsonld` a public HTTPS page URL. Only list sources you are
-permitted to collect from.
+`platform` is `greenhouse`, `lever`, `ashby`, `jsonld` or `html`. `identifier` is the board
+token, site slug or board name, or for `jsonld` and `html` a public HTTPS page URL. Only list
+sources you are permitted to collect from.
+
+The optional fifth column, `html_config`, is required for `html` sources: the path (relative to
+the CSV) of a JSON file with the site's CSS selectors and a `review` block recording who verified
+the page and who approved collection (`"authorization": "APPROVED"`). Without it, the source is
+refused. The crawler then fetches the listing page, at most `max_pages` next pages (limit 10),
+and, only if `detail` selectors are configured, each job's own page, all on the listing page's
+host, with the same robots.txt, TLS and address checks as every other source. Pages that need
+JavaScript are reported as unsupported, not as empty listings. Known job boards and ATS hosts
+(Greenhouse, Lever, Ashby, Keka, Darwinbox, Zoho Recruit, Workday ...) cannot be configured as
+`html`. Format and field rules: "Generic HTML" in
+[docs/platform-field-mapping.md](docs/platform-field-mapping.md).
 
 The export writes one `Jobs` sheet with open jobs only. Postings older than the date window are
 left out. Jobs without a posted date, or with one in the future, are included and labelled in
@@ -133,8 +149,8 @@ ruff format --check .
 
 ## Fixtures
 
-`tests/fixtures/` holds small **synthetic** samples of Greenhouse, Lever, Ashby, JSON-LD and
-generic HTML pages, described by `tests/fixtures/manifest.json`. How their fields map onto
+`tests/fixtures/` holds small **synthetic** samples of Greenhouse, Lever, Ashby, Keka, JSON-LD
+and generic HTML pages, described by `tests/fixtures/manifest.json`. How their fields map onto
 `JobRecord` (and what still needs live validation) is in
 [docs/platform-field-mapping.md](docs/platform-field-mapping.md).
 

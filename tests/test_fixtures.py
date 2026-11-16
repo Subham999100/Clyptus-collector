@@ -63,6 +63,19 @@ REQUIRED_SCENARIOS = {
         "js_rendered_shell",
         "detail_microdata",
         "detail_plain_html",
+        # Phase 8: generic HTML extraction (collector/adapters/html.py).
+        "single_job",
+        "detail_page",
+        "paginated",
+        "missing_optional_fields",
+        "missing_required_fields",
+        "malformed_html",
+        "duplicate_job_links",
+        "invalid_job_url",
+        "unknown_posting_date",
+        "invalid_posting_date",
+        "broken_pagination",
+        "cross_domain_links",
     },
 }
 ALLOWED_SCENARIOS = set().union(*REQUIRED_SCENARIOS.values()) | {"remote"}
@@ -336,6 +349,7 @@ def test_no_extraction_code_or_schema_change_was_added() -> None:
             "ashby.py",
             "common.py",
             "greenhouse.py",
+            "html.py",  # Phase 8: generic HTML extraction from reviewed selectors
             "json_ld.py",
             "keka.py",  # Phase 7: offline Keka Hire adapter
             "lever.py",
