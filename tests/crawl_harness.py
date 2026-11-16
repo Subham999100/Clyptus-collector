@@ -63,6 +63,11 @@ def _reply(request: Request, started: float) -> Response:
     )  # fmt: skip
 
 
+def _latency(request: Request) -> float:
+    """Simulated network time; a scripted reply may set its own ``delay`` (seconds)."""
+    return float(SCENARIO["responses"].get(request.url, {}).get("delay", LATENCY))
+
+
 class FakeHandler:
     lazy = False
 
@@ -79,7 +84,7 @@ class FakeHandler:
         async def download_request(self, request: Request, spider: Any = None) -> Response:
             self._enter()
             started = time.monotonic()
-            await asyncio.sleep(LATENCY)
+            await asyncio.sleep(_latency(request))
             try:
                 return _reply(request, started)
             finally:
@@ -94,7 +99,9 @@ class FakeHandler:
             from twisted.internet import reactor, task
 
             self._enter()
-            deferred = task.deferLater(reactor, LATENCY, _reply, request, time.monotonic())
+            deferred = task.deferLater(
+                reactor, _latency(request), _reply, request, time.monotonic()
+            )
 
             def done(result: Any) -> Any:
                 IN_FLIGHT["now"] -= 1
@@ -211,6 +218,17 @@ def main() -> None:
     run.scrapy_settings = scripted_settings  # type: ignore[assignment]
     if "network" in SCENARIO:
         _script_the_network(run)
+    if "cli" in SCENARIO:  # Phase 9: the real CLI (e.g. `collector daily`), scripted network
+        from collector.cli import app
+
+        try:
+            app(args=SCENARIO["cli"], prog_name="collector")
+            code = 0
+        except SystemExit as exit_:
+            code = exit_.code if isinstance(exit_.code, int) else 1
+        print("EXIT:" + json.dumps(code))
+        print("REQUESTS:" + json.dumps([r["url"] for r in REQUESTS]))
+        return
     if "discovery" in SCENARIO:  # Phase 6B: company discovery through the protected crawler
         _discover(scripted_settings)
         return

@@ -1,6 +1,7 @@
 """Command-line interface. ``run`` crawls configured sources into SQLite (Phase 4), ``export``
 writes the stored jobs to Excel (Phase 5), ``discover`` and ``sources`` turn a company list into
-reviewed, approved crawler sources (Phase 6); ``report`` is a clearly-labelled placeholder."""
+reviewed, approved crawler sources (Phase 6), ``daily`` runs the unattended daily collection and
+dated export (Phase 9); ``report`` is a clearly-labelled placeholder."""
 
 from collections import Counter
 from datetime import timedelta
@@ -13,11 +14,15 @@ from collector.companies import registry
 from collector.companies.directory import get_directory
 from collector.companies.input import CompanyList, load_companies
 from collector.export.excel import ExportError, export_jobs
+from collector.pipelines import daily as daily_run
 from collector.pipelines.ingest import CollectionError, run_collection
 from collector.settings import get_settings
 from collector.spiders.pages import crawl_discovery
 from collector.spiders.run import SourceResult, crawl_sources
 from collector.spiders.sources import Source, load_sources
+from collector.utils.lock import LockBusy, database_lock
+
+STALE_LISTED = 20  # stale candidates printed by `daily`; the count covers all of them
 
 app = typer.Typer(
     name="collector",
@@ -61,7 +66,8 @@ def run(
     Exit codes: 0 for a clean run, 1 when any fetch failure, access block (HTTP 403/429 or a
     challenge page) or extraction failure occurred (a blocked source is skipped; the other
     sources still run and are stored), 2 for an unusable sources file, 3 when the database
-    could not be used or the run failed.
+    could not be used or the run failed, 5 when another run (``run`` or ``daily``) is using the
+    same database (nothing is done).
     """
     try:
         configured = load_sources(sources)
@@ -77,7 +83,14 @@ def run(
         return crawled
 
     try:
-        summary = run_collection(database, configured, crawl)
+        with database_lock(database):
+            summary = run_collection(database, configured, crawl)
+    except LockBusy as exc:
+        typer.echo(f"error: {exc}; nothing was done", err=True)
+        raise typer.Exit(code=5) from exc
+    except OSError as exc:
+        typer.echo(f"error: cannot create the database lock: {exc.strerror}", err=True)
+        raise typer.Exit(code=3) from exc
     except CollectionError as exc:
         _echo_sources(crawled)
         where = f" (run {exc.run_id} marked FAILED)" if exc.run_id is not None else ""
@@ -121,6 +134,158 @@ def _echo_sources(results: list[SourceResult]) -> None:
         for fetch_failure in result.fetch_failures:
             label = "blocked" if fetch_failure.blocked else "fetch error"
             typer.echo(f"  {label}: {fetch_failure.reason} ({fetch_failure.url})", err=True)
+
+
+@app.command()
+def daily(
+    sources: Annotated[
+        Path,
+        typer.Option(
+            "--sources",
+            help="CSV of approved sources (as for `run`, e.g. from `sources export`).",
+        ),
+    ],
+    db: Annotated[
+        Path | None,
+        typer.Option(
+            "--db",
+            help="SQLite database (created if missing). Default: COLLECTOR_SQLITE_PATH, "
+            "else data/collector.db.",
+        ),
+    ] = None,
+    output_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--output-dir",
+            help="Directory for the dated workbook. Default: COLLECTOR_OUTPUT_DIR, else output/.",
+        ),
+    ] = None,
+    overwrite: Annotated[
+        bool,
+        typer.Option("--overwrite", help="Replace today's workbook if it already exists."),
+    ] = False,
+) -> None:
+    """Unattended daily collection: crawl the approved sources, store the jobs and write
+    jobs_<YYYY-MM-DD>.xlsx (business date, COLLECTOR_TIMEZONE). Meant for cron or a systemd
+    timer; it never prompts.
+
+    One run per database at a time (a second one exits with code 5 without doing anything).
+    Runs left RUNNING by an interrupted process are marked FAILED first. If some sources fail,
+    the workbook is named jobs_<date>_partial_run<id>.xlsx; if none succeeds, no workbook is
+    written. Jobs are never closed; jobs missing from the last two successful runs are listed
+    as stale candidates for review. The workbook holds all open jobs within the date window,
+    not only today's.
+
+    Exit codes: 0 complete; 1 partial (some sources failed; partial workbook written); 2
+    unusable sources file or today's workbook already exists (nothing crawled); 3 collection
+    failed (database unusable, crawl failed or no source usable; no workbook); 4 the export
+    failed after the jobs were stored; 5 another run is using the database; 130 interrupted.
+    """
+    try:
+        configured = load_sources(sources)
+    except (OSError, ValueError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    settings = get_settings()
+    database = db if db is not None else settings.sqlite_path
+    folder = output_dir if output_dir is not None else settings.output_dir
+    crawled: list[SourceResult] = []
+
+    def crawl(to_crawl: list[Source]) -> list[SourceResult]:
+        crawled.extend(crawl_sources(to_crawl))
+        return crawled
+
+    try:
+        report_ = daily_run.run_daily(configured, database, folder, crawl, overwrite=overwrite)
+    except daily_run.OutputExists as exc:
+        typer.echo(f"error: {exc} (use --overwrite to replace it); nothing was done", err=True)
+        raise typer.Exit(code=2) from exc
+    except LockBusy as exc:
+        typer.echo(f"error: {exc}; nothing was done", err=True)
+        raise typer.Exit(code=5) from exc
+    except OSError as exc:
+        typer.echo(f"error: cannot create the database lock: {exc.strerror}", err=True)
+        raise typer.Exit(code=3) from exc
+    except CollectionError as exc:
+        _echo_sources(crawled)
+        where = f" (run {exc.run_id} marked FAILED)" if exc.run_id is not None else ""
+        typer.echo(f"DAILY FAILED: {exc}{where}; no workbook written", err=True)
+        raise typer.Exit(code=3) from exc
+    except KeyboardInterrupt as exc:
+        typer.echo("DAILY INTERRUPTED: the run was marked FAILED; no workbook written", err=True)
+        raise typer.Exit(code=130) from exc
+    _echo_sources(crawled)
+    _echo_daily(report_, crawled)
+    if report_.export_error is not None:
+        raise typer.Exit(code=4)
+    codes = {
+        daily_run.DailyOutcome.COMPLETE: 0,
+        daily_run.DailyOutcome.PARTIAL: 1,
+        daily_run.DailyOutcome.FAILED: 3,
+    }
+    raise typer.Exit(code=codes[report_.outcome])
+
+
+def _echo_daily(report_: "daily_run.DailyReport", results: list[SourceResult]) -> None:
+    """The daily summary: only counters the run and database actually provide."""
+    summary = report_.ingest
+    skipped = sum(len(e.skipped) for result in results for e in result.extractions)
+    warnings = sum(len(e.warnings) for result in results for e in result.extractions)
+    echo = typer.echo
+    echo(
+        f"DAILY {report_.business_date.isoformat()} {report_.outcome.value} "
+        f"(run {summary.run_id} {summary.status})"
+    )
+    for run_id in report_.recovered_runs:
+        echo(f"  recovered: run {run_id} was left RUNNING by an interrupted process; FAILED")
+    echo(
+        f"  started {report_.started_at}, finished {report_.finished_at} "
+        f"({report_.duration_seconds:.0f} s)"
+    )
+    echo(
+        f"  sources: {summary.sources} configured, {report_.sources_completed} completed, "
+        f"{summary.sources_failed} failed ({summary.sources_blocked} blocked)"
+    )
+    echo(
+        f"  jobs this run: {summary.jobs_new} new, {summary.jobs_updated} updated, "
+        f"{summary.jobs_unchanged} unchanged ({summary.jobs_seen} stored); "
+        f"{summary.extraction_failures} invalid, {skipped} skipped, "
+        f"{summary.duplicates} duplicates, {warnings} warnings"
+    )
+    echo(
+        f"  posted dates: {summary.eligible} eligible, {summary.unknown_date} unknown, "
+        f"{summary.future_date} future, {summary.old_date} old (not stored)"
+    )
+    echo(
+        f"  stale candidates: {len(report_.stale)} (open jobs missing from the last "
+        f"{daily_run.STALE_AFTER_SUCCESSFUL_RUNS} successful runs; for review only)"
+    )
+    for candidate in report_.stale[:STALE_LISTED]:
+        echo(
+            f"    {candidate.company_name} | {candidate.title} | {candidate.platform} | "
+            f"last seen {candidate.last_seen_at}"
+        )
+    if len(report_.stale) > STALE_LISTED:
+        echo(f"    ... and {len(report_.stale) - STALE_LISTED} more")
+    echo("  closed jobs: none (automatic closing is not supported by database schema v2)")
+    if report_.workbook is not None:
+        book = report_.workbook
+        echo(
+            f"  workbook: {book.path} ({book.rows} rows: every open job within the date "
+            f"window, not only today's; {book.eligible} eligible, {book.unknown_date} unknown "
+            f"date, {book.future_date} future date)"
+        )
+        if report_.outcome is daily_run.DailyOutcome.PARTIAL:
+            echo("  note: some sources failed, so the workbook is named as partial")
+    elif report_.export_error is not None:
+        echo(f"EXPORT FAILED: {report_.export_error}; the collected jobs are stored", err=True)
+    else:
+        echo("  workbook: none (no source could be collected)")
+    if summary.fetch_failures or summary.extraction_failures:
+        echo(
+            f"  errors: {summary.fetch_failures} fetch failures, "
+            f"{summary.extraction_failures} extraction failures"
+        )
 
 
 @app.command()

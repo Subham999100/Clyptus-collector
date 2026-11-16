@@ -1,0 +1,13 @@
+[
+  {
+    "id": 1,
+    "category": "functional",
+    "description": "REPLACE ME: one end-to-end behavior the collector should perform",
+    "steps": [
+      "Run the collector with a sample input",
+      "Check the output / stored data",
+      "Verify the expected result"
+    ],
+    "passes": false
+  }
+]

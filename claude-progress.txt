@@ -1,0 +1,4 @@
+# Progress log (newest entries at the bottom)
+
+2026-11-16 - Harness created. No feature work yet.
+Next: describe the project in feature_list.json, then start with the first feature.
