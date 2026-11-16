@@ -8,6 +8,11 @@ crawler sources; `run` crawls configured sources into SQLite and `export` writes
 jobs to Excel. `report` is still a placeholder. No live pilot has been run yet; see
 [docs/phase5-pilot-report.md](docs/phase5-pilot-report.md).
 
+Phase 7 added an offline Keka Hire adapter for already-fetched, authorized API responses. Keka,
+Darwinbox and Zoho Recruit stay unsupported for crawling, because their job APIs need
+credentials; Darwinbox and Zoho Recruit adapters are blocked on undocumented schemas. See
+"Phase 7 providers" in [docs/platform-field-mapping.md](docs/platform-field-mapping.md).
+
 ## Usage
 
 ```bash

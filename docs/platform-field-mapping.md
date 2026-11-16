@@ -8,7 +8,9 @@ the existing `JobRecord` ([collector/models.py](../collector/models.py), unchang
 ([greenhouse.py](../collector/adapters/greenhouse.py), [lever.py](../collector/adapters/lever.py),
 [ashby.py](../collector/adapters/ashby.py), [json_ld.py](../collector/adapters/json_ld.py),
 sharing [common.py](../collector/adapters/common.py)); their sections below are the actual
-behaviour. The generic section is still a *proposal* from Phase 2 research. No spider exists yet.
+behaviour. Phase 7 added an offline **Keka Hire** adapter ([keka.py](../collector/adapters/keka.py));
+**Darwinbox** and **Zoho Recruit** adapters are blocked (see "Phase 7 providers"). The generic
+section is still a *proposal* from Phase 2 research. No spider exists yet.
 
 ## Read this first
 
@@ -32,6 +34,9 @@ behaviour. The generic section is still a *proposal* from Phase 2 research. No s
 | Lever Postings API | <https://github.com/lever/postings-api> | official README, read (re-read in Phase 3 step 2); **`createdAt` is not documented there at all**, and the response wrapper is not shown |
 | Ashby Job Postings API | <https://developers.ashbyhq.com/docs/public-job-posting-api> | official, read (re-read in Phase 3 step 3); **`id` is not in the official field table**, compensation placement inconsistent; auth, pagination, rate limits and errors are not documented |
 | JSON-LD `JobPosting` | <https://developers.google.com/search/docs/appearance/structured-data/job-posting> and <https://schema.org/JobPosting> | official, read (re-read in Phase 3 step 4); `datePosted` is documented as "the original date the employer posted the job" |
+| Keka Hire `GET /v1/hire/jobs` | <https://developers.keka.com/reference/get_v1-hire-jobs>, <https://developers.keka.com/reference/authentication> | official, read (Phase 7); field names and types only: **no field descriptions, no `status` values, no date formats, no example** |
+| Darwinbox recruitment APIs | <https://api-docs.darwinbox.com/> | official portal renders client-side; **no job schema could be read** (the public Postman workspace likewise) |
+| Zoho Recruit API v2 | <https://www.zoho.com/recruit/developer-guide/apiv2/get-records.html>, [Job Openings standard fields](https://help.zoho.com/portal/en/kb/recruit/module-set-up/job-openings/standard-fields/articles/job-opening-standard-fields) | official, read (Phase 7); record envelope documented, **Job Opening API field names and publish semantics are not** |
 | Lever `createdAt` as epoch ms | third-party scraper/wrapper descriptions (search results) | **unofficial, unverified; not used by the adapter** |
 
 ## Platform research summary
@@ -509,6 +514,65 @@ malformed block in them is extracted or reported:
 Sources: <https://developers.google.com/search/docs/appearance/structured-data/job-posting>,
 <https://schema.org/JobPosting>.
 
+### Phase 7 providers
+
+| Provider | Integration method | Adapter |
+| --- | --- | --- |
+| Keka Hire | DOCUMENTED_AUTHORIZED_API, REQUIRES_AUTHORIZATION (OAuth 2.0 client credentials + API key, scope `kekaapi`; host `https://{company}.keka.com/api`) | offline adapter implemented; no fetch path |
+| Darwinbox | UNSUPPORTED_OR_UNVERIFIED, REQUIRES_AUTHORIZATION (privileged, request-only access per third-party summaries) | **blocked**: no verifiable response schema |
+| Zoho Recruit | REQUIRES_AUTHORIZATION (OAuth, scope `ZohoRECRUIT.modules.jobopening.READ`) | **blocked**: field API names and publication semantics undocumented |
+
+None of the three is a freely accessible public API, so none is a crawler `platform` and
+discovery keeps reporting them `UNSUPPORTED`. No request was made to any of them; only their
+documentation pages were read.
+
+### Keka Hire
+
+Adapter: [keka.py](../collector/adapters/keka.py) (`extract_keka_jobs`), for the JSON array
+returned by the authenticated `GET /v1/hire/jobs` (documented as "all Published, Confidential
+and Archived jobs"; `pageSize` default 100, max 200; `pageNumber`; no wrapper or totals). The
+adapter does not call Keka: an authorized integration fetches with its own credentials and
+hands the decoded array over.
+
+| `JobRecord` | Keka `JobDTO` | Notes |
+| --- | --- | --- |
+| `title` | `title` | required; whitespace collapsed |
+| `company_name` | configuration | never from the response |
+| `apply_url` | `careerPortalUrl` | required; public http(s) only; never constructed |
+| `location` | `jobLocations[]` | each entry `city, state, countryName` (parts present), else its `name`; duplicates removed; `"; "`-joined. **ASSUMPTION**: field semantics are undocumented |
+| `employment_type` | `jobType` | verbatim; no documented vocabulary |
+| `description_snippet` | `description` | HTML-to-text (plain text passes through), 500 characters |
+| `external_id` | `<tenant>:<id>` | `id` is a nullable string; absent: identity falls back to the apply URL |
+| `posted_date` | none | `publishedOn` has no documented format or meaning; `createdOn` (creation) and `targetHireDate` (target) are not publication dates. Always unknown |
+| `work_type`, `salary_text` | none | not in the contract |
+
+Visibility: a job is collected only when `canListOnCareersSite` is `true` and `status` is in
+`listed_statuses`, which the integrator must supply after verifying which code means
+"published" in their account (Keka does not document the values). Other jobs are reported as
+skipped; a missing or mistyped visibility field is a failure. Unmapped: `noOfOpenings`,
+`departmentName`, `experience`, `orgJobId`, `hiringTeam`, `customFields`, requisition fields.
+
+### Darwinbox (blocked)
+
+The official documentation could not be read (client-rendered portal; the public Postman
+collection also renders client-side). Third-party pages only confirm that access is
+privileged and request-only and name a "Fetch Job List V3" operation; they do not give its
+response fields, so mapping them would be invention. Needed: the official job-list/job-detail
+response schema (id, title, status/visibility, location, description, job link, posting-date
+semantics) and authorized credentials.
+
+### Zoho Recruit (blocked)
+
+Documented: `GET https://recruit.zoho.com/recruit/v2/{module_api_name}` with OAuth, a `data`
+array and an `info` object (`per_page`, `count`, `page`, `more_records`), at most 200 records
+per page, `approved`/`converted` filters. Not documented: the Job Openings field API names
+(the standard-fields article lists 13 display names, without API names, and no status,
+location or publish fields) and which records are published on the career site. Needed: the
+account's Job Openings field API names (from Zoho, not guessed) and a documented publish
+signal, with authorized OAuth credentials. A Zoho-hosted career page that carries
+`JobPosting` JSON-LD can already be configured as a `jsonld` source after review; that needs no
+new code.
+
 ### Generic HTML
 
 There is no standard to map from, so these fixtures only capture structural variation; they do
@@ -526,7 +590,8 @@ Fixtures (all synthetic):
 
 ## Fixture inventory
 
-40 fixtures, **0 captured, 40 synthetic**: Greenhouse 9, Lever 8, Ashby 9, JSON-LD 8, generic 6.
+48 fixtures, **0 captured, 48 synthetic**: Greenhouse 9, Lever 8, Ashby 9, JSON-LD 8, generic 6,
+Keka 8 (status code `1` is a synthetic "published" code).
 
 ## Unmapped source data
 
@@ -552,5 +617,8 @@ change is approved.
 7. Whether Greenhouse boards expose workplace type or employment type through custom `metadata`.
 8. Greenhouse single-job requests per job are acceptable at the expected volume (needed for
    `first_published`).
-9. The adapters' own assumptions (listed per adapter in their sections above), including JSON-LD
+9. Keka: which `status` codes mean published, whether `careerPortalUrl` is the job's public
+   page, the `jobLocations` field semantics, and the `publishedOn` format and meaning (all
+   undocumented; validate with an authorized account before enabling an integration).
+10. The adapters' own assumptions (listed per adapter in their sections above), including JSON-LD
    `url`/`identifier` semantics on real pages.

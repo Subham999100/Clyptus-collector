@@ -1,0 +1,32 @@
+[
+  {
+    "id": "6f1d2c3b-0000-4000-8000-000000000501",
+    "title": "Backend Engineer",
+    "description": "<style>p{color:red}</style><h2>About the role</h2><p>Design <b>reliable</b> systems.</p><script>alert('x')</script><ul><li>Python</li><li>SQL</li></ul>",
+    "noOfOpenings": "2",
+    "departmentName": "Engineering",
+    "jobType": "Full Time",
+    "isReferralEnabled": true,
+    "isCreatedFromRequisition": false,
+    "requisitionIdentifier": null,
+    "canAllowInternalEmployees": true,
+    "orgJobId": "ENG-501",
+    "jobLocations": [
+      {
+        "name": "Example Office",
+        "city": "Bengaluru",
+        "state": "Karnataka",
+        "countryName": "India"
+      }
+    ],
+    "hiringTeam": [],
+    "careerPortalUrl": "https://exampletenant.keka.com/careers/jobdetails/501",
+    "targetHireDate": "2026-12-31T00:00:00Z",
+    "status": 1,
+    "canListOnCareersSite": true,
+    "createdOn": "2026-09-01T10:00:00Z",
+    "publishedOn": "2026-09-05T10:00:00Z",
+    "experience": "3-5 years",
+    "customFields": []
+  }
+]

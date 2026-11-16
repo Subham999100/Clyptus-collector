@@ -1,0 +1,23 @@
+[
+  {
+    "id": "6f1d2c3b-0000-4000-8000-000000000301",
+    "title": "Backend Engineer",
+    "description": null,
+    "noOfOpenings": "2",
+    "departmentName": "Engineering",
+    "isReferralEnabled": true,
+    "isCreatedFromRequisition": false,
+    "requisitionIdentifier": null,
+    "canAllowInternalEmployees": true,
+    "orgJobId": "ENG-301",
+    "jobLocations": null,
+    "hiringTeam": [],
+    "careerPortalUrl": "https://exampletenant.keka.com/careers/jobdetails/301",
+    "targetHireDate": "2026-12-31T00:00:00Z",
+    "status": 1,
+    "canListOnCareersSite": true,
+    "createdOn": "2026-09-01T10:00:00Z",
+    "experience": null,
+    "customFields": []
+  }
+]

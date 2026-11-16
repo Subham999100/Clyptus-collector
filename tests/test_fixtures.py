@@ -37,6 +37,17 @@ REQUIRED_SCENARIOS = {
     "greenhouse": REQUIRED_API_SCENARIOS,
     "lever": REQUIRED_API_SCENARIOS,
     "ashby": REQUIRED_API_SCENARIOS | {"unlisted_job"},
+    # Phase 7: Keka documents no work-type or usable date field, so no remote/date scenarios.
+    "keka": {
+        "complete",
+        "multiple_jobs",
+        "missing_optional_fields",
+        "multiple_locations",
+        "html_description",
+        "empty",
+        "invalid",
+        "hidden_or_unpublished",
+    },
     "jsonld": {
         "single_job_posting",
         "multiple_job_postings",
@@ -222,7 +233,7 @@ def test_documented_source_fields_exist_in_jsonld_fixtures(entry: dict[str, Any]
 def test_invalid_scenarios_really_lack_what_the_manifest_says() -> None:
     """Guards against an 'invalid' fixture that is actually valid."""
     invalid = [e for e in JSON_ENTRIES if e["scenario"] == "invalid"]
-    assert len(invalid) == 3
+    assert len(invalid) == 4  # greenhouse, lever, ashby, keka
     assert all(e.get("absent_fields_per_item") for e in invalid)
 
 
@@ -326,6 +337,7 @@ def test_no_extraction_code_or_schema_change_was_added() -> None:
             "common.py",
             "greenhouse.py",
             "json_ld.py",
+            "keka.py",  # Phase 7: offline Keka Hire adapter
             "lever.py",
         ],
         # Phase 6B: pages.py fetches discovery pages through the same protected spider base.

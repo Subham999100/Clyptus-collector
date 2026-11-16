@@ -1012,6 +1012,161 @@
           "min_count": 1
         }
       ]
+    },
+    {
+      "path": "keka/jobs_complete.json",
+      "platform": "keka",
+      "kind": "listing",
+      "scenario": "complete",
+      "provenance": "synthetic",
+      "source_ref": "https://developers.keka.com/reference/get_v1-hire-jobs",
+      "description": "One complete job that can be listed on the careers site (status 1 is a synthetic 'published' code: Keka does not document its status values).",
+      "container": "array",
+      "expected_listing_count": 1,
+      "source_fields": [
+        "id",
+        "title",
+        "careerPortalUrl",
+        "status",
+        "canListOnCareersSite",
+        "description",
+        "jobType",
+        "jobLocations",
+        "publishedOn",
+        "createdOn"
+      ]
+    },
+    {
+      "path": "keka/jobs_multiple.json",
+      "platform": "keka",
+      "kind": "listing",
+      "scenario": "multiple_jobs",
+      "provenance": "synthetic",
+      "source_ref": "https://developers.keka.com/reference/get_v1-hire-jobs",
+      "description": "Three listed jobs: one with a malformed publishedOn, one with publishedOn null, one Part Time. publishedOn is never read by the adapter.",
+      "container": "array",
+      "expected_listing_count": 3,
+      "source_fields": [
+        "id",
+        "title",
+        "careerPortalUrl",
+        "status",
+        "canListOnCareersSite"
+      ]
+    },
+    {
+      "path": "keka/jobs_empty.json",
+      "platform": "keka",
+      "kind": "listing",
+      "scenario": "empty",
+      "provenance": "synthetic",
+      "source_ref": "https://developers.keka.com/reference/get_v1-hire-jobs",
+      "description": "No jobs: an empty array.",
+      "container": "array",
+      "expected_listing_count": 0
+    },
+    {
+      "path": "keka/jobs_missing_optional_fields.json",
+      "platform": "keka",
+      "kind": "listing",
+      "scenario": "missing_optional_fields",
+      "provenance": "synthetic",
+      "source_ref": "https://developers.keka.com/reference/get_v1-hire-jobs",
+      "description": "Nullable fields null or omitted: no description, locations, jobType or publishedOn.",
+      "container": "array",
+      "expected_listing_count": 1,
+      "source_fields": [
+        "id",
+        "title",
+        "careerPortalUrl",
+        "status",
+        "canListOnCareersSite"
+      ],
+      "absent_fields": [
+        "jobType",
+        "publishedOn"
+      ],
+      "null_or_empty_fields": [
+        "description",
+        "jobLocations"
+      ]
+    },
+    {
+      "path": "keka/jobs_multiple_locations.json",
+      "platform": "keka",
+      "kind": "listing",
+      "scenario": "multiple_locations",
+      "provenance": "synthetic",
+      "source_ref": "https://developers.keka.com/reference/get_v1-hire-jobs",
+      "description": "One job in three locations: a duplicate city entry and one with only a name.",
+      "container": "array",
+      "expected_listing_count": 1,
+      "source_fields": [
+        "id",
+        "title",
+        "careerPortalUrl",
+        "status",
+        "canListOnCareersSite",
+        "jobLocations"
+      ]
+    },
+    {
+      "path": "keka/jobs_html_description.json",
+      "platform": "keka",
+      "kind": "listing",
+      "scenario": "html_description",
+      "provenance": "synthetic",
+      "source_ref": "https://developers.keka.com/reference/get_v1-hire-jobs",
+      "description": "Description as HTML with a script and style block (never executed or kept).",
+      "container": "array",
+      "expected_listing_count": 1,
+      "source_fields": [
+        "id",
+        "title",
+        "careerPortalUrl",
+        "status",
+        "canListOnCareersSite",
+        "description"
+      ]
+    },
+    {
+      "path": "keka/jobs_invalid.json",
+      "platform": "keka",
+      "kind": "listing",
+      "scenario": "invalid",
+      "provenance": "synthetic",
+      "source_ref": "https://developers.keka.com/reference/get_v1-hire-jobs",
+      "description": "Four broken jobs: no title; no careerPortalUrl; a careerPortalUrl on localhost; a numeric title with a string jobLocations.",
+      "container": "array",
+      "expected_listing_count": 4,
+      "absent_fields_per_item": [
+        [
+          "title"
+        ],
+        [
+          "careerPortalUrl"
+        ],
+        [],
+        []
+      ]
+    },
+    {
+      "path": "keka/jobs_unlisted.json",
+      "platform": "keka",
+      "kind": "listing",
+      "scenario": "hidden_or_unpublished",
+      "provenance": "synthetic",
+      "source_ref": "https://developers.keka.com/reference/get_v1-hire-jobs",
+      "description": "Visibility: one job with canListOnCareersSite false, one with a status outside the synthetic published code (3), one listed job.",
+      "container": "array",
+      "expected_listing_count": 3,
+      "source_fields": [
+        "id",
+        "title",
+        "careerPortalUrl",
+        "status",
+        "canListOnCareersSite"
+      ]
     }
   ]
 }
