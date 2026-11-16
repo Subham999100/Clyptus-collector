@@ -1,4 +1,5 @@
 """Environment + smoke check. Run at the start of every session. EDIT for your project."""
+
 import subprocess
 import sys
 from pathlib import Path

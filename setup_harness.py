@@ -8,6 +8,7 @@ progress file + feature list + init script + git commits + verification.
 Usage (from your project root, venv active):   python setup_harness.py
 Safe to re-run: it never overwrites files that already exist.
 """
+
 import datetime
 import json
 import shutil
@@ -149,7 +150,16 @@ Wrap up cleanly:
 4. Append a short entry to claude-progress.txt (done / next / known issues).
 """
 
-GITIGNORE_ENTRIES = [".venv/", "venv/", "__pycache__/", "*.pyc", ".env", ".env.*", ".pytest_cache/", ".ruff_cache/"]
+GITIGNORE_ENTRIES = [
+    ".venv/",
+    "venv/",
+    "__pycache__/",
+    "*.pyc",
+    ".env",
+    ".env.*",
+    ".pytest_cache/",
+    ".ruff_cache/",
+]
 
 SETTINGS = {
     "hooks": {
@@ -173,11 +183,16 @@ def main():
     if shutil.which("claude"):
         print("  ok     claude CLI found")
     else:
-        print("  warn   claude CLI not found. In PowerShell run:  irm https://claude.ai/install.ps1 | iex")
+        print(
+            "  warn   claude CLI not found. In PowerShell run:  "
+            "irm https://claude.ai/install.ps1 | iex"
+        )
     if sys.prefix == sys.base_prefix:
         print("  warn   no virtual environment active")
     if "OneDrive" in str(ROOT):
-        print("  note   project is inside OneDrive; consider pausing sync or moving it (e.g. C:\\dev)")
+        print(
+            "  note   project is inside OneDrive; consider pausing sync or moving it (e.g. C:\\dev)"
+        )
         print("         to avoid sync conflicts with .git and .venv")
 
     if not (ROOT / ".git").exists():
@@ -197,7 +212,9 @@ def main():
 
     # 2. Harness files
     write_if_missing("CLAUDE.md", CLAUDE_MD)
-    write_if_missing("claude-progress.txt", PROGRESS.format(today=datetime.date.today().isoformat()))
+    write_if_missing(
+        "claude-progress.txt", PROGRESS.format(today=datetime.date.today().isoformat())
+    )
     write_if_missing("feature_list.json", json.dumps(FEATURE_LIST, indent=2) + "\n")
     write_if_missing("init.py", INIT_PY)
     write_if_missing("scripts/check.py", CHECK_PY)

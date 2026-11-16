@@ -1,5 +1,6 @@
 """Fast verification run by the Claude Code hook after edits.
 Exit code 2 sends the message back to Claude as feedback. Keep it FAST. EDIT as needed."""
+
 import importlib.util
 import subprocess
 import sys
