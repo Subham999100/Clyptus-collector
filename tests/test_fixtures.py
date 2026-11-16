@@ -330,6 +330,7 @@ def test_no_extraction_code_or_schema_change_was_added() -> None:
         ],
         "spiders": ["__init__.py", "platforms.py", "run.py", "sources.py"],
         "export": ["__init__.py", "excel.py"],  # Phase 5: Excel export
+        "detect": ["__init__.py", "platforms.py"],  # Phase 6: URL/page platform detection
     }
     for package in ("adapters", "spiders", "detect", "middlewares", "export"):
         files = sorted(p.name for p in (PACKAGE / package).glob("*.py"))

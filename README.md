@@ -3,7 +3,8 @@
 Standalone tool that will collect publicly available job postings from company career sites,
 validate and store them in SQLite, and export them to Excel for the Clyptus Job Portal.
 
-**Status: Phase 5.** `run` crawls configured sources into SQLite and `export` writes the stored
+**Status: Phase 6.** `discover` and `sources` turn a company list into reviewed, approved
+crawler sources; `run` crawls configured sources into SQLite and `export` writes the stored
 jobs to Excel. `report` is still a placeholder. No live pilot has been run yet; see
 [docs/phase5-pilot-report.md](docs/phase5-pilot-report.md).
 
@@ -23,6 +24,39 @@ The export writes one `Jobs` sheet with open jobs only. Postings older than the 
 left out. Jobs without a posted date, or with one in the future, are included and labelled in
 the "Date Status" column. The database is opened read-only. Exit codes for `export`: 0 success,
 2 output exists (without `--overwrite`) or cannot be written, 3 database missing or unusable.
+
+### From company names to approved sources
+
+```bash
+collector discover --companies companies.csv --batch-size 10      # repeat for the next batch
+collector sources verify "Acme" --by "Reviewer" --evidence "careers page links the board"
+collector sources authorize "Acme" --decision approved --by "Owner" --note "written permission"
+collector sources export --output approved_sources.csv           # then: collector run --sources ...
+collector sources status --companies companies.csv
+```
+
+`companies.csv` has the header `company_name,official_website,careers_url` (template:
+[collector/companies/seed_companies.csv](collector/companies/seed_companies.csv)); only the
+name is required. Invalid rows are reported and skipped, exact repeats are skipped, and similar
+or conflicting entries are never merged but left for review.
+
+`discover` is offline: it fetches no pages and has no website search. It classifies supplied
+careers URLs by their documented shapes (Greenhouse, Lever and Ashby boards, a same-site
+JSON-LD candidate page, or an unsupported ATS such as Workday or Keka) and reads identifiers only
+from those URLs. Ownership is not confirmed offline, so candidates stay `REVIEW_REQUIRED` until
+a reviewer confirms them with `sources verify`. A company with no supplied website is
+`NOT_FOUND`. The discovery logic can confirm ownership from fetched official pages, but no live
+page fetcher is wired in yet.
+
+Collection authorization is separate: every company is `PENDING` until someone records an
+explicit `APPROVED` (only for a `VERIFIED` source, and only for that source) or `RESTRICTED`
+decision. `sources export` writes only verified, approved, supported sources, in the format
+`collector run --sources` reads (checked with the loader before writing), plus a
+`<output>_review.csv` listing every other company with the reason. Nothing is crawled by these
+commands. Results live in `data/discovery.json` (`COLLECTOR_DISCOVERY_STATE_PATH`), are saved
+atomically while a batch runs, and a rerun resumes with the companies not yet processed; a
+verified source is never overwritten by a later inconclusive check. Run one `discover` at a
+time per state file.
 
 ## Setup
 

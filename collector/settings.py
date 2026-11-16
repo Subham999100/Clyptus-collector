@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     autothrottle_enabled: bool = True
     sqlite_path: Path = Path("data/collector.db")
     output_dir: Path = Path("output")
+    discovery_state_path: Path = Path("data/discovery.json")  # source-discovery results
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 
     @field_validator("timezone")
