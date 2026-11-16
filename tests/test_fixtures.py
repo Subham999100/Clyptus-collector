@@ -37,6 +37,17 @@ REQUIRED_SCENARIOS = {
     "greenhouse": REQUIRED_API_SCENARIOS,
     "lever": REQUIRED_API_SCENARIOS,
     "ashby": REQUIRED_API_SCENARIOS | {"unlisted_job"},
+    # Phase 7: Keka documents no work-type or usable date field, so no remote/date scenarios.
+    "keka": {
+        "complete",
+        "multiple_jobs",
+        "missing_optional_fields",
+        "multiple_locations",
+        "html_description",
+        "empty",
+        "invalid",
+        "hidden_or_unpublished",
+    },
     "jsonld": {
         "single_job_posting",
         "multiple_job_postings",
@@ -52,6 +63,19 @@ REQUIRED_SCENARIOS = {
         "js_rendered_shell",
         "detail_microdata",
         "detail_plain_html",
+        # Phase 8: generic HTML extraction (collector/adapters/html.py).
+        "single_job",
+        "detail_page",
+        "paginated",
+        "missing_optional_fields",
+        "missing_required_fields",
+        "malformed_html",
+        "duplicate_job_links",
+        "invalid_job_url",
+        "unknown_posting_date",
+        "invalid_posting_date",
+        "broken_pagination",
+        "cross_domain_links",
     },
 }
 ALLOWED_SCENARIOS = set().union(*REQUIRED_SCENARIOS.values()) | {"remote"}
@@ -222,7 +246,7 @@ def test_documented_source_fields_exist_in_jsonld_fixtures(entry: dict[str, Any]
 def test_invalid_scenarios_really_lack_what_the_manifest_says() -> None:
     """Guards against an 'invalid' fixture that is actually valid."""
     invalid = [e for e in JSON_ENTRIES if e["scenario"] == "invalid"]
-    assert len(invalid) == 3
+    assert len(invalid) == 4  # greenhouse, lever, ashby, keka
     assert all(e.get("absent_fields_per_item") for e in invalid)
 
 
@@ -316,9 +340,25 @@ def test_no_fixture_is_claimed_to_be_a_captured_response() -> None:
 
 
 def test_no_extraction_code_or_schema_change_was_added() -> None:
-    # Phase 3 added the Greenhouse and Lever adapters and their shared helpers; any other adapter
-    # still needs its own step.
-    allowed = {"adapters": ["__init__.py", "common.py", "greenhouse.py", "lever.py"]}
+    # Phase 3 added the Greenhouse, Lever, Ashby and JSON-LD adapters and their shared helpers;
+    # Phase 4 added the Scrapy spiders, Phase 5 the Excel export. Any other extraction code still
+    # needs its own step.
+    allowed = {
+        "adapters": [
+            "__init__.py",
+            "ashby.py",
+            "common.py",
+            "greenhouse.py",
+            "html.py",  # Phase 8: generic HTML extraction from reviewed selectors
+            "json_ld.py",
+            "keka.py",  # Phase 7: offline Keka Hire adapter
+            "lever.py",
+        ],
+        # Phase 6B: pages.py fetches discovery pages through the same protected spider base.
+        "spiders": ["__init__.py", "pages.py", "platforms.py", "run.py", "sources.py"],
+        "export": ["__init__.py", "excel.py"],  # Phase 5: Excel export
+        "detect": ["__init__.py", "platforms.py"],  # Phase 6: URL/page platform detection
+    }
     for package in ("adapters", "spiders", "detect", "middlewares", "export"):
         files = sorted(p.name for p in (PACKAGE / package).glob("*.py"))
         assert files == allowed.get(package, ["__init__.py"]), (

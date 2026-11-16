@@ -9,7 +9,7 @@ description = "Standalone collector of publicly available job postings for the C
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "scrapy>=2.11,<3",
+    "scrapy>=2.11.2,<3",
     "pydantic>=2.7,<3",
     "pydantic-settings>=2.3,<3",
     "typer>=0.12,<1",

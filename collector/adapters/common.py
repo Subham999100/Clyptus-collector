@@ -1,8 +1,9 @@
-"""Pieces shared by the platform extraction adapters (Greenhouse, Lever).
+"""Pieces shared by the platform extraction adapters (Greenhouse, Lever, Ashby, JSON-LD).
 
 Offline and pure: no network, files, database, logging, environment or clock access. Only what
-more than one adapter needs lives here: the result types, configuration and URL checks, and
-HTML/text to snippet conversion. Platform-specific field mapping stays in each adapter.
+more than one adapter needs lives here: the result types, configuration and URL checks, optional
+ISO posting dates, and HTML/text to snippet conversion. Platform-specific field mapping stays in
+each adapter.
 """
 
 import ipaddress
@@ -10,7 +11,7 @@ import re
 import unicodedata
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Any, Literal
 from urllib.parse import urlsplit
@@ -19,6 +20,7 @@ from selectolax.parser import HTMLParser
 
 from collector.models import JobRecord
 from collector.pipelines.validate import FieldError, Rejection
+from collector.utils.dates import parse_posted_date
 from collector.utils.urls import normalize_url
 
 DESCRIPTION_SNIPPET_MAX = 500  # Unicode characters
@@ -88,13 +90,25 @@ class ExtractionWarning:
 
 
 @dataclass(frozen=True)
+class SkippedJob:
+    """One job deliberately not collected (e.g. Ashby ``isListed: false``): a rule, not a data
+    problem. ``index`` and ``job_id`` are as in ``ExtractionFailure``; ``reason`` is a safe
+    message that never contains source values."""
+
+    index: int | None
+    job_id: str | None
+    reason: str
+
+
+@dataclass(frozen=True)
 class Extraction:
-    """Outcome of one response: records, failures and warnings, each in source order.
+    """Outcome of one response: records, failures, skips and warnings, each in source order.
 
     ``response_type`` is ``None`` when the response was not recognized. ``job_count`` is the number
-    of job objects in the response, so ``len(records) + len(failures)`` equals it for a recognized
-    response. ``warnings`` usually refer to jobs in ``records``; if a job also failed for another
-    reason, its warnings are still reported.
+    of job objects in the response, so ``len(records) + len(failures) + len(skipped)`` equals it
+    for a recognized response. ``skipped`` lists jobs deliberately not collected; it stays empty
+    for platforms without such a rule. ``warnings`` usually refer to jobs in ``records``; if a job
+    also failed for another reason, its warnings are still reported.
     """
 
     records: tuple[JobRecord, ...]
@@ -102,6 +116,7 @@ class Extraction:
     response_type: ResponseType | None
     job_count: int
     warnings: tuple[ExtractionWarning, ...] = ()
+    skipped: tuple[SkippedJob, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -194,6 +209,42 @@ def classify_url(value: Any, name: str) -> tuple[str | None, tuple[FailureKind, 
         return public_url(value), None
     except ValueError as exc:
         return None, (FailureKind.INVALID_URL, f"{name} is not a public URL: {exc}")
+
+
+# ISO 8601 date, or date-time with optional offset. Relative or free-text dates are not accepted.
+_ISO_DATE_TEXT = re.compile(
+    r"\d{4}-\d{2}-\d{2}"
+    r"(?:[Tt ]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:[Zz]|[+-]\d{2}(?::?\d{2})?)?)?"
+)
+
+
+def read_iso_date(value: Any, field: str, now: datetime, warn: Fail) -> date | None:
+    """An optional ISO 8601 posting date named ``field``. Absent, null or blank means unknown,
+    silently. A value that is present but unusable also means unknown, but is reported through
+    ``warn`` so the job is kept. The date is the one written in the source, offset not applied
+    (same rule as ``parse_posted_date``); relative or free-text dates are never accepted."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        warn(
+            field,
+            FailureKind.INVALID_TYPE,
+            f"{field} is {type(value).__name__}, expected a string; posting date unknown",
+        )
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    parsed = None
+    if _ISO_DATE_TEXT.fullmatch(text):
+        parsed = parse_posted_date(text, now)  # ISO text never consults ``now``
+    if parsed is None:
+        warn(
+            field,
+            FailureKind.INVALID_DATE,
+            f"{field} is not a valid ISO 8601 date; posting date unknown",
+        )
+    return parsed
 
 
 def read_text(source: dict[str, Any], key: str, fail: Fail, *, required: bool) -> str | None:

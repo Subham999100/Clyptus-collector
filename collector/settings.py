@@ -24,9 +24,12 @@ class Settings(BaseSettings):
     concurrent_requests: int = 4
     request_timeout_seconds: int = 20
     retry_times: int = 2
+    download_delay_seconds: float = 1.0
     autothrottle_enabled: bool = True
     sqlite_path: Path = Path("data/collector.db")
     output_dir: Path = Path("output")
+    discovery_state_path: Path = Path("data/discovery.json")  # source-discovery results
+    discovery_provider: Literal["none", "wikidata"] = "none"  # website lookup for name-only rows
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 
     @field_validator("timezone")
