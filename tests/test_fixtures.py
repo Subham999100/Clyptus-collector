@@ -317,7 +317,8 @@ def test_no_fixture_is_claimed_to_be_a_captured_response() -> None:
 
 def test_no_extraction_code_or_schema_change_was_added() -> None:
     # Phase 3 added the Greenhouse, Lever, Ashby and JSON-LD adapters and their shared helpers;
-    # Phase 4 added the Scrapy spiders. Any other extraction code still needs its own step.
+    # Phase 4 added the Scrapy spiders, Phase 5 the Excel export. Any other extraction code still
+    # needs its own step.
     allowed = {
         "adapters": [
             "__init__.py",
@@ -328,6 +329,7 @@ def test_no_extraction_code_or_schema_change_was_added() -> None:
             "lever.py",
         ],
         "spiders": ["__init__.py", "platforms.py", "run.py", "sources.py"],
+        "export": ["__init__.py", "excel.py"],  # Phase 5: Excel export
     }
     for package in ("adapters", "spiders", "detect", "middlewares", "export"):
         files = sorted(p.name for p in (PACKAGE / package).glob("*.py"))

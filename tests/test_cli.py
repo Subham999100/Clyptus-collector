@@ -22,7 +22,7 @@ runner = CliRunner()
 FIXTURES = Path(__file__).parent / "fixtures"
 
 COMMANDS = ["run", "export", "report"]
-PLACEHOLDER_COMMANDS = ["export", "report"]  # `run` is implemented (Phase 4)
+PLACEHOLDER_COMMANDS = ["report"]  # `run` (Phase 4) and `export` (Phase 5) are implemented
 
 
 @pytest.fixture(autouse=True)

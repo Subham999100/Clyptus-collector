@@ -35,6 +35,7 @@ from collector.models import JobRecord
 from collector.pipelines.date_window import DateOutcome, check_date_window
 from collector.pipelines.dedupe import dedupe
 from collector.pipelines.store import connect, finish_run, init_db, start_run, upsert_job
+from collector.settings import get_settings
 from collector.spiders.run import SourceResult
 from collector.spiders.sources import Source
 
@@ -94,9 +95,12 @@ def store_results(
     records: list[JobRecord] = [record for result in results for record in result.records]
     deduped = dedupe(records)
 
+    settings = get_settings()  # read once, not once per record
     counts = dict.fromkeys(DateOutcome, 0)
     for record in deduped.accepted:
-        outcome = check_date_window(record, reference).outcome
+        outcome = check_date_window(
+            record, reference, settings.date_window_days, settings.tz
+        ).outcome
         counts[outcome] += 1
         if outcome is not DateOutcome.OLD_DATE:
             upsert_job(conn, record, run_id, now=now)

@@ -3,9 +3,26 @@
 Standalone tool that will collect publicly available job postings from company career sites,
 validate and store them in SQLite, and export them to Excel for the Clyptus Job Portal.
 
-**Status: Phase 0 (project foundation).** The CLI exists, but `run`, `export`, and `report`
-are placeholders that report "not implemented" and exit with a non-zero status. No crawling,
-storage, or export happens yet.
+**Status: Phase 5.** `run` crawls configured sources into SQLite and `export` writes the stored
+jobs to Excel. `report` is still a placeholder. No live pilot has been run yet; see
+[docs/phase5-pilot-report.md](docs/phase5-pilot-report.md).
+
+## Usage
+
+```bash
+collector run --sources sources.csv --db data/collector.db
+collector export --db data/collector.db --output output/jobs.xlsx   # add --overwrite to replace
+```
+
+`sources.csv` has the header `platform,company_name,identifier,company_website`, where
+`platform` is `greenhouse`, `lever`, `ashby` or `jsonld`. `identifier` is the board token, site
+slug or board name, or for `jsonld` a public HTTPS page URL. Only list sources you are
+permitted to collect from.
+
+The export writes one `Jobs` sheet with open jobs only. Postings older than the date window are
+left out. Jobs without a posted date, or with one in the future, are included and labelled in
+the "Date Status" column. The database is opened read-only. Exit codes for `export`: 0 success,
+2 output exists (without `--overwrite`) or cannot be written, 3 database missing or unusable.
 
 ## Setup
 

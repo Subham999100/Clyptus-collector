@@ -1,11 +1,12 @@
-"""Command-line interface. ``run`` crawls configured sources (Phase 4); the rest are
-clearly-labelled placeholders for later phases."""
+"""Command-line interface. ``run`` crawls configured sources into SQLite (Phase 4), ``export``
+writes the stored jobs to Excel (Phase 5); ``report`` is a clearly-labelled placeholder."""
 
 from pathlib import Path
 from typing import Annotated
 
 import typer
 
+from collector.export.excel import ExportError, export_jobs
 from collector.pipelines.ingest import CollectionError, run_collection
 from collector.settings import get_settings
 from collector.spiders.run import SourceResult, crawl_sources
@@ -115,9 +116,49 @@ def _echo_sources(results: list[SourceResult]) -> None:
 
 
 @app.command()
-def export() -> None:
-    """Export collected jobs to Excel (not implemented)."""
-    _not_implemented("export")
+def export(
+    db: Annotated[
+        Path | None,
+        typer.Option(
+            "--db",
+            help="Existing SQLite database to read (never modified). "
+            "Default: COLLECTOR_SQLITE_PATH, else data/collector.db.",
+        ),
+    ] = None,
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            help="Excel file to write. Default: jobs.xlsx in COLLECTOR_OUTPUT_DIR, else output/.",
+        ),
+    ] = None,
+    overwrite: Annotated[
+        bool, typer.Option("--overwrite", help="Replace the output file if it already exists.")
+    ] = False,
+) -> None:
+    """Export stored jobs to an Excel workbook (one "Jobs" sheet).
+
+    Open jobs are exported, except postings older than the date window. Jobs without a posted
+    date or with a future date are included and labelled in the "Date Status" column. No
+    crawling happens and the database is opened read-only.
+
+    Exit codes: 0 on success, 2 when the output file exists (without --overwrite) or cannot be
+    written, 3 when the database is missing or unusable.
+    """
+    settings = get_settings()
+    database = db if db is not None else settings.sqlite_path
+    target = output if output is not None else settings.output_dir / "jobs.xlsx"
+    try:
+        summary = export_jobs(database, target, overwrite=overwrite)
+    except ExportError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=3 if exc.database else 2) from exc
+    typer.echo(f"Export completed: {summary.rows} jobs written to {summary.path}")
+    typer.echo(
+        f"  {summary.eligible} eligible, {summary.unknown_date} unknown date, "
+        f"{summary.future_date} future date (review); excluded: {summary.old_date} old, "
+        f"{summary.closed} closed"
+    )
 
 
 @app.command()
